@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# 参考仓与基准数据（由 refs/clone.sh 与 PRODUCTION §5.0 生成，不入库）
+refs/*
+!refs/clone.sh
+bench/
+
+# 权重与检查点：runs/ 只入证据（config/metrics/notes/日志），大权重靠 config 里的来源+commit 重建
+*.safetensors
+*.gguf
+*.bin
+*.pt
+wandb/
+
+# runs/ 例外：允许提交 summary 级产物
+!runs/**/config.yaml
+!runs/**/metrics.jsonl
+!runs/**/system.json
+!runs/**/notes.md
