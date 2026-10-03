@@ -10,9 +10,10 @@
 ## 上手顺序
 
 ```bash
-bash refs/clone.sh          # 0. 拉齐参考仓（pin，§2.1/§3.1 文件级地图的路径基础）
+bash refs/clone.sh          # 0. 拉齐参考仓（pin，§2.1/§3.1 路径以 refs/<仓名>/ 解析）
 pip install -e ".[dev]"     # 1. 本仓库
-# 2. 之后照 GUIDE §8「起步五步」执行；二阶段 benchmark 拉取见 PRODUCTION §5.0
+bash tools/ci.sh            # 2. 门禁自检（ruff→注释→compile→pytest）；hook: git config core.hooksPath .githooks
+# 3. 之后照 GUIDE §8「起步五步」；二阶段 benchmark 拉取见 PRODUCTION §5.0；Actions 见 .github/workflows/ci.yml
 ```
 
 ## 目录地图（每个目录内有细指引 README）

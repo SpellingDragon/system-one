@@ -1,0 +1,36 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cpu-gates:                     # 与本地 `bash tools/ci.sh` 完全同源
+    runs-on: ubuntu-latest
+    env: { GATE_STRICT: "1" }    # 缺 ruff/pytest 即判负
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ruff pytest
+      - run: bash tools/ci.sh
+
+  mac-gates:                     # Apple Silicon 轻量档（编译+注释门；MPS 用例见 device 矩阵）
+    runs-on: macos-latest
+    env: { GATE_STRICT: "1" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ruff
+      - run: bash tools/ci.sh --fast
+
+  # —— 设备矩阵：待课程方 self-hosted runner 接入后启用（label 与 backends.py 对应）——
+  # devices:
+  #   needs: cpu-gates
+  #   strategy: { matrix: { label: [cuda, mps, npu] } }
+  #   runs-on: [self-hosted, "${{ matrix.label }}"]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: pip install -e ".[dev]"        # CUDA/MPS 需装 torch；npu 需 CANN+torch_npu
+  #     - run: GATE_STRICT=1 bash tools/ci.sh --device ${{ matrix.label }}

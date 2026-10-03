@@ -180,11 +180,14 @@ python -c "from huggingface_hub import snapshot_download as s; s('LocalLLaMA/typ
 - 反例：`# softmax 归一化后取 argmax` —— 用黑话解释黑话，等于没写。
 - 正例：`白话：每个候选先报个胆量分，加在一起当一锅汤，看各能分几成——分到最多的就是答案，那几成也是我们的确信程度。`
 
-**命令与 CI 顺序**：
+**命令与 CI**（本地 = hook = Actions 同源三道门）：
 ```bash
-python tools/check_comments.py            # 默认扫 learning/ 与 dmlaya/，违例 exit 1
-# CI: ruff → check_comments → pytest（按 @cuda/@mps/@npu 设备自动 skip）
+python tools/check_comments.py           # 单门：默认扫 learning/ 与 dmlaya/，违例 exit 1
+bash tools/ci.sh                         # 全量：ruff → check_comments → compile → pytest(非设备)
+bash tools/ci.sh --fast                  # hook 档（.githooks/pre-commit；启用: git config core.hooksPath .githooks）
+bash tools/ci.sh --device cuda|mps|npu  # 设备档：@cuda/@mps/@npu 标记用例（self-hosted runner）
 ```
+GitHub Actions 见 `.github/workflows/ci.yml`（ubuntu 全量 + macOS fast；设备矩阵待接入后启用）。**CI 也有 CI**：`tests/test_ci_smoke.py` 锁死两份手册评分表合计=100、注释工具判定正确性与目录完整性——改分数忘配平，CI 直接红。
 
 **人工兜底（防"真话假写"，authenticity 两招）**：① 答辩随机指学生自己写的任一 `白话：` 段要求其**口语复述**并回答"删掉这行哪个断言会挂"——**答不上 = 对应项零分（罚得比不写注释更重）**；② 注释质量是"工程质量与文档"15 分的共同证据源。
 
