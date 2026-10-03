@@ -55,6 +55,7 @@ laya 是**非自回归 System-1 决策引擎**：state + 类型化问题（`choi
 | `laya/` | 决策 schema、温度校准、`/v1/systemone` 服务、滑窗 kernel；**要击败的基线** |
 | `StartLux-Decision/` | **同构路线参照**：`jevfmt.py` 渲染、`model.py` 字母读出、`finetune/calibrate.py` 温度；只读思路（权重 CC BY-NC，红线禁载） |
 | `tilelang/` + `TileKernels/` | M1 的 DSL 与 `_kernel/_cuda/_asc` 三件套 + 设备抽象范式（扩展出 `_mps`） |
+| `jev-cookbook/` | 三原语与校准概率的**中文认知教材**（ch1–3，可离线 mock 跑）与二阶段评测方法论（ch6 harness/ch10 数据四分）。⚠️ ch10 是**载 Laya 权重的微调**且属 encoder+marker 路线：一阶段**只读不行**（§7-0 红线），架构不借；该仓 CC BY-NC-SA，重写勿拷贝 |
 
 ### 2.1 逐环节参考地图（文件级；参考仓用 `bash refs/clone.sh` 一键拉到 `refs/`）
 

@@ -29,6 +29,8 @@ clone laya                   https://github.com/NandhaKishorM/laya.git
 # clone StartLux-Decision    <课程提供的URL>
 # —— 长上下文机制参照（M2/二阶段） ——
 clone Naive-N0.5-Flash       https://github.com/NaiveAI-Labs/Naive-N0.5-Flash.git
+# —— 评测工程与决策方法论（二阶段为主；⚠ CC BY-NC-SA，只重写成文、禁拷贝代码入本仓 MIT 树） ——
+clone jev-cookbook           https://github.com/datawhalechina/jev-cookbook.git
 
 echo
 echo "提醒: benchmark 数据不属于本脚本, 见 PRODUCTION.md §5.0 —— Intern-Decision @ 2f81580 / jevbench @ 7ce310c7 / typed-decisions @ f7a2487e (pin 到 bench/)"

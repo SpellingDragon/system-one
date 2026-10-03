@@ -116,6 +116,7 @@ flowchart TD
 | P4-多模态 | ⚠️ **工作区内无本地参考**（Naive/laya/StartLux 均纯文本）→ 看 GLM-5.3-Flash `vision_config`（24 层 ViT/patch14/448/2×2 merge/temporal2，ModelScope `ZhipuAI/GLM-5.3-Flash`）与 SigLIP；装配接口承一阶段 `dmlaya/decision/render`（state 段嵌 image token） |
 | P4-中文 | 数据见 §5.2；tokenizer 复用 backbone 词表；评测协议同 §6 |
 | P5 服务/FP8 | 服务：`laya/laya/{serve.py,mcp/}` 与 `StartLux-Decision/startlux_decision/{server,gguf_server}.py`（"决策程序不进权重"的前挂范式）；**FP8 三坑**见 `StartLux-Decision/docs/inference.md`（短输入反慢 2.7×、padding→NaN、小模型 Q4 掉点）；延迟协议：`eval/latency.py` |
+| 评测工程/数据纪律（贯穿 P0/P3/P6） | `refs/jev-cookbook/main/06_模型评测/benchmark/`：231 题三级 tasks、`adapters/{typesafe,laya_local,openai_compat}.py`、`metrics/ledger/compare`（双基线亲跑与"无重试无回退+预算记账"的结构范本）；`main/10_本地模型/`：中文合成数据管线 `generate_synthetic_data.py`、`experiments/` 三臂对照（head-only/sft/rlcd）+ `RLCD_DIAGNOSIS.md` 失败诊断（`runs/` 档案范本）。⚠️ 该仓 CC BY-NC-SA：**按思想重写，禁拷贝文件入仓** |
 
 ---
 
@@ -235,10 +236,11 @@ python -m decision_index score --results runs/dml/results.jsonl --suite-dir <sui
 
 1. **唯一 harness**：所有跑分走 `dmlaya/eval/`，禁止各轨自带评分。
 2. **pin 版本**：`eval/registry.py` 对每个数据集固定 split/commit/采样参数（`temperature/top_p`）、随机种子；报告附 `bench/` 各仓 `git rev-parse HEAD` 与数据集 revision 清单（自动生成）。
-3. **双基线强制**：`eval/baselines/` 下由学生**同 harness 亲跑 laya 与 StartLux-0.8B** 产出对照表（G1–G3 以此为 gate）；Jev 1.13 作参考列引卡面数字。
-4. **报告规范**：`docs/` 出统一结果表——`{metric, DML, laya-baseline, startlux-0.8B-baseline, Δ, (Jev 参考列)}` + 可靠性图 + 失败/边界分析；数字变动 before/after。
-5. **可复现**：`examples/` 一键复现评测；标注硬件与库版本。
-6. **设备公平**：每个速度数字注明设备与精度模式；laya 速度基线仅 CUDA 有效（同设备对照，见 §5.5），MPS/NPU 仅报 DML 自身。
+3. **数据四分与 locked test**（方法源自 `refs/jev-cookbook` 第十章，重写实现）：每条样本按**来源组隔离**后划入 Train / Dev（选 checkpoint）/ Calibration（拟合温度与阈值）/ **Locked Test（只允许一次最终评测，出报告即封存）**；温度永远不在训练集或 test 上拟合。
+4. **双基线强制**：`eval/baselines/` 下由学生**同 harness 亲跑 laya 与 StartLux-0.8B** 产出对照表（G1–G3 以此为 gate）；Jev 1.13 作参考列引卡面数字。
+5. **报告规范**：`docs/` 出统一结果表——`{metric, DML, laya-baseline, startlux-0.8B-baseline, Δ, (Jev 参考列)}` + 可靠性图 + 失败/边界分析；数字变动 before/after。
+6. **可复现**：`examples/` 一键复现评测；标注硬件与库版本。
+7. **设备公平**：每个速度数字注明设备与精度模式；laya 速度基线仅 CUDA 有效（同设备对照，见 §5.5），MPS/NPU 仅报 DML 自身。
 
 ---
 
