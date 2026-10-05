@@ -1,0 +1,332 @@
+2026-10-06 05:42:55,244 | INFO    | modelscope_hub.download | Downloading 11 files from Qwen/Qwen3-0.6B@master
+Downloading:   0%|          | 0/11 [00:00<?, ?file/s]Downloading: 100%|██████████| 11/11 [00:00<00:00, 18.52file/s]Downloading: 100%|██████████| 11/11 [00:00<00:00, 18.51file/s]
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights: 100%|██████████| 311/311 [00:00<00:00, 3185.67it/s]
+{
+  "latency": {
+    "axis": "speed",
+    "mode": "endpoint",
+    "device": "cpu",
+    "dtype": "float32",
+    "backend": "torch_eager",
+    "serial": true,
+    "warmup_excluded": 20,
+    "n": 50,
+    "min_samples_reference": 50,
+    "meets_min_samples": true,
+    "e2e_ms": {
+      "p50": 382.662,
+      "p95": 390.694,
+      "p99": 392.154,
+      "min": 377.534,
+      "max": 392.62,
+      "mean": 383.619
+    },
+    "readout_ms": {
+      "p50": 380.481,
+      "p95": 388.333,
+      "p99": 389.602,
+      "min": 375.005,
+      "max": 390.015,
+      "mean": 381.404
+    },
+    "tokens_in": 16750,
+    "throughput_tps_aggregate": 873.263,
+    "throughput_tps_median_per_row": 875.446,
+    "output_tokens": 0,
+    "throughput_semantics": "input-tokens read once (no autoregressive decoding)",
+    "honest_note": "主口径为 P50/P95（不报均值为头条）；热身样本已剔除；设备/位宽/后端随报告带出，跨机对比必须连这三项一起看",
+    "protocol": {
+      "warmup": 20,
+      "samples": 50,
+      "serial": true,
+      "request_template": "1 choice + 1 noul + 1 score（同一 state，一次前向答完）",
+      "fixed_state_sha16": "11a20fb78c3fde80",
+      "questions": [
+        "action",
+        "causal",
+        "severity"
+      ],
+      "render_version": "dmlaya_render_v1"
+    },
+    "device_note": "CPU / torch_eager 档（本波禁 MPS，NPU 后端画像待开卡注记）",
+    "readout_column": "readout_ms = 服务端自报 ms（只包前向+读数）；e2e_ms = 客户端掐表（含序列化与本机回环）"
+  },
+  "parity": {
+    "records": 40,
+    "compared": 40,
+    "argmax_all_same": true,
+    "worst_prob_drift": 2.05e-05,
+    "tolerance": 0.005,
+    "passed": true,
+    "local_semantics": "P1 组批口径（group_by_k + _make_batch 原件），只换编号那一步为对话模板",
+    "rows": [
+      {
+        "id": "agent_trace_observability_000000/action",
+        "qid": "q",
+        "k": 4,
+        "argmax_same": true,
+        "served": {
+          "continue": 0.312958,
+          "human_review": 0.005256,
+          "observe": 0.371328,
+          "stop": 0.310458
+        },
+        "local": {
+          "continue": 0.312954,
+          "human_review": 0.005256,
+          "observe": 0.371321,
+          "stop": 0.31047
+        },
+        "max_abs_drift": 1.189e-05
+      },
+      {
+        "id": "agent_trace_observability_000000/needs_review",
+        "qid": "q",
+        "k": 2,
+        "argmax_same": true,
+        "served": {
+          "false": 0.003049,
+          "true": 0.996951
+        },
+        "local": {
+          "false": 0.003049,
+          "true": 0.996951
+        },
+        "max_abs_drift": 5e-08
+      },
+      {
+        "id": "agent_trace_observability_000000/outcome",
+        "qid": "q",
+        "k": 4,
+        "argmax_same": true,
+        "served": {
+          "failure": 0.000154,
+          "harmful": 1.2e-05,
+          "partial": 7e-06,
+          "success": 0.999826
+        },
+        "local": {
+          "failure": 0.000154,
+          "harmful": 1.2e-05,
+          "partial": 7e-06,
+          "success": 0.999826
+        },
+        "max_abs_drift": 1.2e-07
+      },
+      {
+        "id": "agent_trace_observability_000000/risk",
+        "qid": "q",
+        "k": 4,
+        "argmax_same": true,
+        "served": {
+          "0": 0.335776,
+          "1": 0.022007,
+          "2": 0.010377,
+          "3": 0.63184
+        },
+        "local": {
+          "0": 0.335781,
+          "1": 0.022006,
+          "2": 0.010377,
+          "3": 0.631835
+        },
+        "max_abs_drift": 4.68e-06
+      },
+      {
+        "id": "agent_trace_observability_000000/urgency",
+        "qid": "q",
+        "k": 4,
+        "argmax_same": true,
+        "served": {
+          "0": 0.029503,
+          "1": 0.002115,
+          "2": 0.000313,
+          "3": 0.968069
+        },
+        "local": {
+          "0": 0.029503,
+          "1": 0.002115,
+          "2": 0.000313,
+          "3": 0.968068
+        },
+        "max_abs_drift": 3.8e-07
+      },
+      {
+        "id": "agent_trace_observability_000001/action",
+        "qid": "q",
+        "k": 4,
+        "argmax_same": true,
+        "served": {
+          "continue": 0.816617,
+          "human_review": 0.001454,
+          "observe": 0.041244,
+          "stop": 0.140686
+        },
+        "local": {
+          "continue": 0.816613,
+          "human_review": 0.001454,
+          "observe": 0.041243,
+          "stop": 0.14069
+        },
+        "max_abs_drift": 4.46e-06
+      },
+      "...(40 rows total)"
+    ]
+  },
+  "hits": {
+    "requests": 3,
+    "prefix_hits_delta": 2,
+    "prefix_misses_delta": 1,
+    "tokens_fed_delta": 193,
+    "hit_rows": 2,
+    "all_hits_suffix_only": true,
+    "runner_after": {
+      "cache": {
+        "hits": 2,
+        "misses": 1,
+        "hit_ratio": 0.6666666666666666,
+        "items": 1,
+        "bytes_used": 16285696,
+        "bytes_mib": 15.5,
+        "stores": 1,
+        "evictions": 0,
+        "oversized": 0,
+        "max_bytes": 4294967296,
+        "max_items": 0,
+        "memory_ledger": "cpu-rss/past-bytes，非 NPU 显存账"
+      },
+      "counter": {
+        "total": 307,
+        "calls": 5,
+        "by_kind": {
+          "prefix": 71,
+          "suffix": 122,
+          "full": 114
+        }
+      },
+      "quarantined": [],
+      "uncacheable_keys": [],
+      "verified_keys": 1,
+      "parity_failed": 0,
+      "recompute_forced": 0,
+      "recompute_uncacheable": 0
+    },
+    "rows": [
+      {
+        "id": "p210-hit-00",
+        "qid": "q0",
+        "answers": {
+          "q0": {
+            "a": 0.6539049744606018,
+            "b": 0.039895232766866684,
+            "c": 0.3061997890472412
+          }
+        },
+        "ms": 514.507,
+        "prefix": [
+          {
+            "tokens": 114,
+            "k": 3,
+            "key": "c6319b4c6e132630e5409db6039d22d0",
+            "hit": false,
+            "recomputed": false,
+            "prefix_tokens_fed": 71,
+            "suffix_tokens_fed": 43,
+            "full_tokens_fed": 0,
+            "tokens_fed": 114,
+            "suffix_len": 43,
+            "tokens_are_suffix_only": false,
+            "drift": 3.24249267578125e-05,
+            "drift_ratio": 1.1376868818010252e-06,
+            "argmax_same": true,
+            "elapsed_s": 0.5127,
+            "uncacheable": false
+          }
+        ]
+      },
+      {
+        "id": "p210-hit-01",
+        "qid": "q1",
+        "answers": {
+          "q1": {
+            "false": 2.395597675786121e-06,
+            "true": 0.999997615814209
+          }
+        },
+        "ms": 131.384,
+        "prefix": [
+          {
+            "tokens": 106,
+            "k": 2,
+            "key": "c6319b4c6e132630e5409db6039d22d0",
+            "hit": true,
+            "recomputed": false,
+            "prefix_tokens_fed": 0,
+            "suffix_tokens_fed": 35,
+            "full_tokens_fed": 0,
+            "tokens_fed": 35,
+            "suffix_len": 35,
+            "tokens_are_suffix_only": true,
+            "drift": null,
+            "drift_ratio": null,
+            "argmax_same": null,
+            "elapsed_s": 0.1309,
+            "uncacheable": false
+          }
+        ]
+      },
+      {
+        "id": "p210-hit-02",
+        "qid": "q2",
+        "answers": {
+          "q2": {
+            "0": 0.0008815492619760334,
+            "1": 0.061474889516830444,
+            "2": 0.9376435279846191
+          }
+        },
+        "ms": 139.528,
+        "prefix": [
+          {
+            "tokens": 115,
+            "k": 3,
+            "key": "c6319b4c6e132630e5409db6039d22d0",
+            "hit": true,
+            "recomputed": false,
+            "prefix_tokens_fed": 0,
+            "suffix_tokens_fed": 44,
+            "full_tokens_fed": 0,
+            "tokens_fed": 44,
+            "suffix_len": 44,
+            "tokens_are_suffix_only": true,
+            "drift": null,
+            "drift_ratio": null,
+            "argmax_same": null,
+            "elapsed_s": 0.1386,
+            "uncacheable": false
+          }
+        ]
+      }
+    ],
+    "engine_uncacheable_note": "混合记忆层（linear attention）的 past 拷不动时，runner 记 uncacheable 并整段重算，命中数会掉到 0——这是 p2-07 已登记的降级路径，不是静默错位"
+  },
+  "engine": {
+    "engine": "Qwen/Qwen3-0.6B",
+    "loader": "minimal",
+    "device": "cpu",
+    "dtype": "float32",
+    "backend": "torch_eager",
+    "head_shape": [
+      151936,
+      1024
+    ],
+    "pad_id": 151643,
+    "render_version": "dmlaya_render_v1",
+    "provenance": {
+      "snapshot_path": "/Users/pengweiye/Documents/codes/system-one/release/bench/ms_models/models/Qwen--Qwen3-0.6B/snapshots/master",
+      "source": "modelscope",
+      "revision": "master"
+    }
+  },
+  "letters": 26
+}

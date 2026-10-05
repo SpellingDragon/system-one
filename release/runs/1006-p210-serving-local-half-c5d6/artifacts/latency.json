@@ -1,0 +1,49 @@
+{
+  "axis": "speed",
+  "mode": "endpoint",
+  "device": "cpu",
+  "dtype": "float32",
+  "backend": "torch_eager",
+  "serial": true,
+  "warmup_excluded": 20,
+  "n": 50,
+  "min_samples_reference": 50,
+  "meets_min_samples": true,
+  "e2e_ms": {
+    "p50": 382.662,
+    "p95": 390.694,
+    "p99": 392.154,
+    "min": 377.534,
+    "max": 392.62,
+    "mean": 383.619
+  },
+  "readout_ms": {
+    "p50": 380.481,
+    "p95": 388.333,
+    "p99": 389.602,
+    "min": 375.005,
+    "max": 390.015,
+    "mean": 381.404
+  },
+  "tokens_in": 16750,
+  "throughput_tps_aggregate": 873.263,
+  "throughput_tps_median_per_row": 875.446,
+  "output_tokens": 0,
+  "throughput_semantics": "input-tokens read once (no autoregressive decoding)",
+  "honest_note": "主口径为 P50/P95（不报均值为头条）；热身样本已剔除；设备/位宽/后端随报告带出，跨机对比必须连这三项一起看",
+  "protocol": {
+    "warmup": 20,
+    "samples": 50,
+    "serial": true,
+    "request_template": "1 choice + 1 noul + 1 score（同一 state，一次前向答完）",
+    "fixed_state_sha16": "11a20fb78c3fde80",
+    "questions": [
+      "action",
+      "causal",
+      "severity"
+    ],
+    "render_version": "dmlaya_render_v1"
+  },
+  "device_note": "CPU / torch_eager 档（本波禁 MPS，NPU 后端画像待开卡注记）",
+  "readout_column": "readout_ms = 服务端自报 ms（只包前向+读数）；e2e_ms = 客户端掐表（含序列化与本机回环）"
+}

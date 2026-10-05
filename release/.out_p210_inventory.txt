@@ -1,0 +1,24 @@
+2026-10-06 05:40:02,310 | INFO    | modelscope_hub.download | Downloading 11 files from Qwen/Qwen3-0.6B@master
+Downloading:   0%|          | 0/11 [00:00<?, ?file/s]Downloading: 100%|██████████| 11/11 [00:00<00:00, 17.14file/s]Downloading: 100%|██████████| 11/11 [00:00<00:00, 17.14file/s]
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights: 100%|██████████| 311/311 [00:00<00:00, 3698.75it/s]
+[load] 4.4s describe={"engine": "Qwen/Qwen3-0.6B", "loader": "minimal", "device": "cpu", "dtype": "float32", "backend": "torch_eager", "head_shape": [151936, 1024], "pad_id": 151643, "render_version": "dmlaya_render_v1", "provenance": {"snapshot_path": "/Users/pengweiye/Documents/codes/system-one/release/bench/ms_models/models/Qwen--Qwen3-0.6B/snapshots/master", "source": "modelscope", "revision": "master"}}
+[tail] ok='<think>\n\n</think>\n\n'
+[listen] http://127.0.0.1:62859
+[health] {"status": "ok", "render_version": "dmlaya_render_v1", "prefix": false, "uptime_s": 0.016, "engine": {"engine": "Qwen/Qwen3-0.6B", "loader": "minimal", "device": "cpu", "dtype": "float32", "backend": "torch_eager", "head_shape": [151936, 1024], "pad_id": 151643, "render_version": "dmlaya_render_v1", "provenance": {"snapshot_path": "/Users/pengweiye/Documents/codes/system-one/release/bench/ms_model
+[decide] keys=["answers", "engine", "id", "ms", "ms_semantics", "render_version", "uncalibrated_qids"]
+[decide] answers={"q1": {"a": 0.558577299118042, "b": 0.024057481437921524, "c": 0.417365163564682}, "q2": {"false": 0.006447161547839642, "true": 0.9935528039932251}, "q3": {"0": 0.01637720689177513, "1": 0.23749393224716187, "2": 0.7461289167404175}}
+[decide] ms=347.531 semantics=forward_plus_readout_of_this_request uncal=['q1', 'q2', 'q3']
+[batch] n=5 ms_list=[79.656, 79.656, 79.656, 79.656, 79.656] ms_batch=398.282
+[batch] answers0={"q1": {"a": 0.8973716497421265, "b": 0.10262835025787354}}
+[stats] {"requests": 6, "rows": 8, "forwards": 2, "tokens_fed": 616, "prefix_hits": 0, "prefix_misses": 0, "prefix_recomputes": 0, "prefix_enabled": false, "seconds_since_start": 0.767, "render_version": "dmlaya_render_v1"}
+[400-check] code=400 body={"error": "bad_request", "detail": "请求体必须有非空的 questions（{题目号: {type, instructions, criteria}}）"}
+[data] axis records n=8 ids=['agent_trace_observability_000000/action', 'agent_trace_observability_000000/needs_review', 'intern-agnews:58978429d66f046aeb6959cb:decision', 'intern-agnews:0c7e0ea4071c0a41b7c21353:decision', 'cmmlu:security_study:test/39', 'cmmlu:security_study:test/48', 'clue:ocnli:validation:30', 'clue:ocnli:validation:39']
+   qtypes: {'q': 'choice'} state_len: 335
+   qtypes: {'q': 'noul'} state_len: 335
+   qtypes: {'q': 'choice'} state_len: 173
+   qtypes: {'q': 'choice'} state_len: 336
+   qtypes: {'q': 'choice'} state_len: 24
+   qtypes: {'q': 'choice'} state_len: 10
+   qtypes: {'q': 'noul'} state_len: 11
+   qtypes: {'q': 'noul'} state_len: 21
+[done]

@@ -1,0 +1,137 @@
+{
+  "requests": 3,
+  "prefix_hits_delta": 2,
+  "prefix_misses_delta": 1,
+  "tokens_fed_delta": 193,
+  "hit_rows": 2,
+  "all_hits_suffix_only": true,
+  "runner_after": {
+    "cache": {
+      "hits": 2,
+      "misses": 1,
+      "hit_ratio": 0.6666666666666666,
+      "items": 1,
+      "bytes_used": 16285696,
+      "bytes_mib": 15.5,
+      "stores": 1,
+      "evictions": 0,
+      "oversized": 0,
+      "max_bytes": 4294967296,
+      "max_items": 0,
+      "memory_ledger": "cpu-rss/past-bytes，非 NPU 显存账"
+    },
+    "counter": {
+      "total": 307,
+      "calls": 5,
+      "by_kind": {
+        "prefix": 71,
+        "suffix": 122,
+        "full": 114
+      }
+    },
+    "quarantined": [],
+    "uncacheable_keys": [],
+    "verified_keys": 1,
+    "parity_failed": 0,
+    "recompute_forced": 0,
+    "recompute_uncacheable": 0
+  },
+  "rows": [
+    {
+      "id": "p210-hit-00",
+      "qid": "q0",
+      "answers": {
+        "q0": {
+          "a": 0.6539049744606018,
+          "b": 0.039895232766866684,
+          "c": 0.3061997890472412
+        }
+      },
+      "ms": 514.507,
+      "prefix": [
+        {
+          "tokens": 114,
+          "k": 3,
+          "key": "c6319b4c6e132630e5409db6039d22d0",
+          "hit": false,
+          "recomputed": false,
+          "prefix_tokens_fed": 71,
+          "suffix_tokens_fed": 43,
+          "full_tokens_fed": 0,
+          "tokens_fed": 114,
+          "suffix_len": 43,
+          "tokens_are_suffix_only": false,
+          "drift": 3.24249267578125e-05,
+          "drift_ratio": 1.1376868818010252e-06,
+          "argmax_same": true,
+          "elapsed_s": 0.5127,
+          "uncacheable": false
+        }
+      ]
+    },
+    {
+      "id": "p210-hit-01",
+      "qid": "q1",
+      "answers": {
+        "q1": {
+          "false": 2.395597675786121e-06,
+          "true": 0.999997615814209
+        }
+      },
+      "ms": 131.384,
+      "prefix": [
+        {
+          "tokens": 106,
+          "k": 2,
+          "key": "c6319b4c6e132630e5409db6039d22d0",
+          "hit": true,
+          "recomputed": false,
+          "prefix_tokens_fed": 0,
+          "suffix_tokens_fed": 35,
+          "full_tokens_fed": 0,
+          "tokens_fed": 35,
+          "suffix_len": 35,
+          "tokens_are_suffix_only": true,
+          "drift": null,
+          "drift_ratio": null,
+          "argmax_same": null,
+          "elapsed_s": 0.1309,
+          "uncacheable": false
+        }
+      ]
+    },
+    {
+      "id": "p210-hit-02",
+      "qid": "q2",
+      "answers": {
+        "q2": {
+          "0": 0.0008815492619760334,
+          "1": 0.061474889516830444,
+          "2": 0.9376435279846191
+        }
+      },
+      "ms": 139.528,
+      "prefix": [
+        {
+          "tokens": 115,
+          "k": 3,
+          "key": "c6319b4c6e132630e5409db6039d22d0",
+          "hit": true,
+          "recomputed": false,
+          "prefix_tokens_fed": 0,
+          "suffix_tokens_fed": 44,
+          "full_tokens_fed": 0,
+          "tokens_fed": 44,
+          "suffix_len": 44,
+          "tokens_are_suffix_only": true,
+          "drift": null,
+          "drift_ratio": null,
+          "argmax_same": null,
+          "elapsed_s": 0.1386,
+          "uncacheable": false
+        }
+      ]
+    }
+  ],
+  "engine_uncacheable_note": "混合记忆层（linear attention）的 past 拷不动时，runner 记 uncacheable 并整段重算，命中数会掉到 0——这是 p2-07 已登记的降级路径，不是静默错位"
+}
