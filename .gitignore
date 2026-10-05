@@ -21,3 +21,8 @@ wandb/
 !runs/**/metrics.jsonl
 !runs/**/system.json
 !runs/**/notes.md
+
+
+# 测试临时产物
+.tmp_*/
+release/tests/.tmp_p205/

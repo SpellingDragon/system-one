@@ -1,43 +1,19 @@
-# deep-multimodal-laya (DML)
+# System-One — 根级导航
 
-基于 **TileLang** 的类 laya 非自回归 System-1 决策引擎课程项目，分两部分（同一仓库、同一架构：因果 decoder + 选项字母读出 + 类型温度）：
+**System-One：从 0 到 1 造一个端侧校准的 System-1 决策引擎**（基于 TileLang 的两阶段课程项目 · 教师参考答案仓）。**本根只做导航**，实体在四个目录：
 
-| 部分 | 手册 | 一句话 |
+| 目录 | 内容 | 状态 |
 |---|---|---|
-| 一 · 学习版 | **[GUIDE.md](GUIDE.md)** | 从零（禁载任何预训练权重）造"小脑"+决策程序+校准，TileLang 内核跑通 CUDA/MPS/昇腾 |
-| 二 · 正式版 | **[PRODUCTION.md](PRODUCTION.md)** | 载 0.8B 级开源 backbone，SFT→OPD→RL 三栈；**同 harness 胜 laya 与 StartLux-0.8B**（Jev 为参考上限）；1M/多模态/中文生产化；论文级技术报告收尾 |
+| [`scratch/`](scratch/) | **第一阶段（P1 学习版）**：完整主路径结构（sys1/learning/tests/…）+ 手册（GUIDE.md/PRODUCTION.md）+ 全部实验产物（runs/bench）+ P1 导览表 | ✅ 已完成归档（openspec `teacher-p1-scratch-mps`），冻结只读 |
+| [`release/`](release/) | **第二阶段（P2 正式版）**：从 scratch 冻结的 `sys1/` 基线出发，SFT→OPD→RL 三栈 + 三扩展的实施主场 | ⏳ 待启动（openspec `teacher-p2-production-full` 活跃，启动门已满足） |
+| [`openspec/`](openspec/) | 变更计划唯一真源（多级 specs：一级编排 + 二级子变更 + 三级孙任务） | P1 已 archive，P2 活跃 |
+| [`.agent/`](.agent/) | 本项目沉淀的 agent 资产：openspec-multilevel-planning skill + sub-agent 派发模式 | 见 [AGENTS.md](AGENTS.md) |
 
-## 上手顺序
+**新会话/协作者请先读 [AGENTS.md](AGENTS.md)**（阶段工作规则、.agent 资产用法、CI/hook 说明）。
 
 ```bash
-bash refs/clone.sh          # 0. 拉齐参考仓（pin，§2.1/§3.1 路径以 refs/<仓名>/ 解析）
-pip install -e ".[dev]"     # 1. 本仓库
-bash tools/ci.sh            # 2. 门禁自检（ruff→注释→compile→pytest）；hook: git config core.hooksPath .githooks
-# 3. 之后照 GUIDE §8「起步五步」；二阶段 benchmark 拉取见 PRODUCTION §5.0；Actions 见 .github/workflows/ci.yml
+# P1 复现（scratch，只读使用）
+cd scratch && PYTHON=.venv/bin/python bash tools/ci.sh        # 全门禁
+bash examples/repro_p1.sh                                      # 一键 s0→s3 + 四轴评测
+# P2 启动（release，届时自建 venv 后按 openspec P2 编排执行）
 ```
-
-## 目录地图（每个目录内有细指引 README）
-
-```
-dmlaya/      ★ 两轨共享实现层（decision=两阶段同构桥梁；勿分叉）
-  decision/  渲染 + 字母读出 + 类型温度 + 分组票选     ← 先读这里
-  layers/    注意力/rope/indexpool（混合注意力机制层）
-  kernels/   TileLang 三件套 _kernel/_cuda/_mps/_asc
-  data/      样本 schema / 转写 / 装配
-  eval/      唯一评测 harness + pin registry + 双基线  ← 一切数字出自这里
-  lang/ vision/ testing/   （空位，到对应阶段按 README 认领）
-learning/    一阶段 s0–s3 脚本（禁第三方权重）
-production/  二阶段 assets/sft/opd/rl + teachers/
-serving/     二阶段部署：/v1/systemone + FP8 + 跨后端
-runs/        实验 lab notebook —— 论文证据链唯一真源（§9.1）
-report/      技术报告 LaTeX + 互审记录（§9.2/§9.3）
-examples/ tests/ docs/ configs/   共用轻目录（约定见 dmlaya 与两手册）
-refs/        参考仓克隆地（脚本在此；产物被 .gitignore）
-```
-
-## 三条全局红线（细则见各手册）
-
-1. **learning/ 轨禁止加载任何第三方预训练权重**（GUIDE §7-0）；production/ 轨允许。
-2. **所有跑分走 `dmlaya/eval/`**；laya 与 StartLux-0.8B 双基线须同 harness 亲跑（PRODUCTION §6）。
-3. **数字必须可溯源**：报告/答辩中每个数字对应 `runs/` 内一个 run；无 run-id 视为捏造（PRODUCTION §11-0）。
-4. **一阶段注释即评分证据**：中文注释 + 文件头三件套 + `白话：` 段落（不用技术名词讲明白），`python tools/check_comments.py` 为 CI 门（GUIDE §6.1）。

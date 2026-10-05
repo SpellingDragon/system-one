@@ -1,0 +1,5 @@
+[s3] run-id          : 1004-s3-calibrate-de2d
+[s3] decision config : /Users/pengweiye/Documents/codes/deep-mutimodal-laya-by-tilelang/runs/1004-s2-decision-sft-d828/model/decision_config.json
+[s3] pooled          : 无
+[s3] choice: T=1.4000 ECE 0.0442 -> 0.1128 (Δ=+0.0686, improved=False, pooled=False)
+[s3] noul: T=3.9000 ECE 0.1956 -> 0.0005 (Δ=-0.1951, improved=True, pooled=False)

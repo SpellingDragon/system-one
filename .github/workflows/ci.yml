@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install ruff pytest
-      - run: bash tools/ci.sh
+      - run: bash scratch/tools/ci.sh
 
   mac-gates:                     # Apple Silicon 轻量档（编译+注释门；MPS 用例见 device 矩阵）
     runs-on: macos-latest
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install ruff
-      - run: bash tools/ci.sh --fast
+      - run: bash scratch/tools/ci.sh --fast
 
   # —— 设备矩阵：待课程方 self-hosted runner 接入后启用（label 与 backends.py 对应）——
   # devices:

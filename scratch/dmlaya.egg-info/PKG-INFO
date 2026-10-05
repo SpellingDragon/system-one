@@ -1,0 +1,22 @@
+Metadata-Version: 2.4
+Name: dmlaya
+Version: 0.0.1
+Summary: deep-multimodal-laya: a laya-class non-autoregressive typed decision engine built on TileLang (course project, two tracks)
+License: MIT
+Requires-Python: >=3.10
+Requires-Dist: torch>=2.4
+Requires-Dist: tilelang>=0.1.15
+Requires-Dist: numpy
+Requires-Dist: safetensors>=0.4
+Requires-Dist: tokenizers>=0.19
+Requires-Dist: pyarrow>=15
+Requires-Dist: pyyaml
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: pytest-xdist; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Provides-Extra: production
+Requires-Dist: transformers>=4.5; extra == "production"
+Requires-Dist: peft; extra == "production"
+Requires-Dist: trl; extra == "production"
+Requires-Dist: accelerate; extra == "production"
