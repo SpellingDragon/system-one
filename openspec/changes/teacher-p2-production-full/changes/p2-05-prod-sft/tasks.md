@@ -44,6 +44,7 @@
       scaling_06b 8192×8=65536 折算比 2:1；并声明"910B 是否 OOM 只有 C5 能给数，本地 s/step 不外推"）。
       计划外增第三档 `configs/tiny_cpu.yaml`（本地 CPU 冒烟专用，limit 480 / float32 / `kernel_backend: kernel` / `loader: minimal`），
       否则只能拿正式档去跑冒烟、必然越 spec 上限。
+- [ ] 【执行期回写 2026-10-06·p2-09 隐患裁决】C5 发射前置两闸：① 训练口改 axis: train（现 quality 轴含 600 道中文决策考卷，照旧即训测同集假分）② p2-03 D3 中文 train 语料登记勾结
 - [ ] B3b 【正式档实跑，P1 教训：配置存在≠实跑】gate08b 档真跑一段（LoRA 完整一步前向+反向+适配器落盘，MPS）：记录吞吐/显存/耗时入 run notes，并往 README 写命令指引供择机全量触发 —— 验证：runs/ 含 gate08b 正式档 run-id + README 含命令指引段
       **【待 C5】** gate08b 正式档 run-id（910B + 真 Qwen3.5-0.8B + 真伪标包 + 显存/吞吐实测）本地无卡无权重，跑不出这一行。
       可本地交付的两半已就位：① README「SFT（p2-05）命令指引」含云端触发命令（`--config production/configs/gate08b.yaml --run-prefix p2-05-sft`

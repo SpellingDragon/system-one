@@ -19,3 +19,4 @@
 
 - [x] D1 登记 **train 分割**装配：typed-decisions train 真拉 + Intern-Decision train 分区（registry 现仅 test 口径——p2-05 训练装配复用同口导致训测同集假分风险）；`load_axis_records` 增 split 参数或新 axis `train`，qtype 三口一致 —— 验证：`.venv/bin/python -c "from sys1.eval.run import load_train_records; rs=load_train_records(); assert rs and all(r['split']=='train' for r in rs); print(len(rs))"` exit 0 且 run notes 追加 train 底账行
 - [x] D2 spec 补 Scenario：训练数据消费面（train/test 隔离断言：任何 train 记录 id 不得出现在评测 quality 轴集内）—— 验证：`pytest tests/test_registry.py -k split_isolation -q` exit 0
+- [ ] D3 中文 train 语料登记（cmmlu/clue train 档决策化入 axis=train，与 test 考卷 id 互斥——承接 p2-09 隐患裁决，C5 前置闸之二）—— 验证：load_train_records() 含中文档 且 split_isolation 扩至中文对 exit 0

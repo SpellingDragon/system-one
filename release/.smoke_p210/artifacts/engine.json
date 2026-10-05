@@ -1,0 +1,18 @@
+{
+  "engine": "Qwen/Qwen3-0.6B",
+  "loader": "minimal",
+  "device": "cpu",
+  "dtype": "float32",
+  "backend": "torch_eager",
+  "head_shape": [
+    151936,
+    1024
+  ],
+  "pad_id": 151643,
+  "render_version": "dmlaya_render_v1",
+  "provenance": {
+    "snapshot_path": "/Users/pengweiye/Documents/codes/system-one/release/bench/ms_models/models/Qwen--Qwen3-0.6B/snapshots/master",
+    "source": "modelscope",
+    "revision": "master"
+  }
+}

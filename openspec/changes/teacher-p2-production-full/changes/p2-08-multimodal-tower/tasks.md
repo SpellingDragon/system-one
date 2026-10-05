@@ -4,7 +4,7 @@
 
 ### 工作项 A 视觉塔与装配
 
-- [ ] A1 ViT 载入（SigLIP/CLIP，ModelScope 优先）+ 冻结→解冻两段配置 —— 验证：`python -m pytest tests/test_mm.py -k vit -q`
+- [ ] A1 【探针·前置】自带塔路线成熟度实证（主路线，权重已证 153 张量）：transformers 5.18 processor 一站式（messages+image url→return_dict）+ 视觉塔前向出 token 数账（2×2 merge）+ 与  `<\|vision_start/end\|>` 三件套嵌入 state 段的渲染对齐；不成熟即切换 SigLIP+projector 备选并记录取证 —— 验证：CPU 上 1 图过 processor→塔前向→token 拼接全链 exit 0，run notes 含路线判定行
 - [ ] A2 `sys1/data/mm.py` 图文装配（image token 入 state 段，schema 兼容） —— 验证：`python -m pytest tests/test_mm.py -k assemble -q`
 
 ### 工作项 B 对照与评测

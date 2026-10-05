@@ -1,0 +1,15 @@
+2026-10-06 04:45:14,448 | INFO    | modelscope_hub.download | Downloading 11 files from Qwen/Qwen3-0.6B@master
+Downloading:   0%|          | 0/11 [00:00<?, ?file/s]Downloading: 100%|██████████| 11/11 [00:00<00:00, 18.33file/s]Downloading: 100%|██████████| 11/11 [00:00<00:00, 18.33file/s]
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights: 100%|██████████| 311/311 [00:00<00:00, 3186.94it/s]
+[load] seconds=3.3 dtype=torch.float32 letters=26 pad_id=151643 head=(151936, 1024) summary={'backbone': 'Qwen/Qwen3-0.6B', 'loader': 'minimal', 'dtype': 'torch.float32', 'params_m': 596.0, 'letters': 26, 'pad_id': 151643, 'snapshot_path': '/Users/pengweiye/Documents/codes/system-one/release/bench/ms_models/models/Qwen--Qwen3-0.6B/snapshots/master', 'source': 'modelscope', 'revision': 'master'}
+[render] order=['a', 'b', 'c'] messages_roles=['system', 'user']
+[template] enable_thinking kwarg ok
+  tail='|im_start|>assistant\n<think>\n\n</think>\n\n'
+  think_off_suffix='<think>\n\n</think>\n\n'
+  endswith=True
+[encode] tokens=76
+[forward] ms=146.0 readout_ms=0.104 shape=(1, 76, 1024) scores=[29.881, 25.709, 28.936] argmax=A
+[multi-qid] q1:k=3/tok=76, q2:k=2/tok=70, q3:k=3/tok=82
+[pad-invariance] q1 max_abs=0.000e+00 rel=0.000e+00 argmax_same=True
+[pad-invariance] q2 max_abs=1.907e-05 rel=6.284e-07 argmax_same=True
+[pad-invariance] q3 max_abs=0.000e+00 rel=0.000e+00 argmax_same=True

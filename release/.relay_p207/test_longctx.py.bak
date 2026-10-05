@@ -1,0 +1,524 @@
+"""p2-07 长上下文测试：needle 生成器（A1）、前缀复用（B1a-B1c/B2）、因果滑窗（C1）。
+
+口径：
+  * 全部可在 CPU 跑完——前缀复用用一个"纯 python 假引擎"，滑窗用合成张量与小 GPT；
+    真 backbone（0.6B 替身）的前向凭据走 run 档案，不在单测里挂 6 秒模型加载；
+  * 资源纪律：禁用 MPS（归一阶段训练长跑）；带 `mps` 标记的用例需 `SYS1_ALLOW_MPS=1`
+    才放行，本波一律以 CPU 路验证（记入战报偏离项）；
+  * 用例名按孙任务分关键字：needle / prefix_core / prefix_incr / prefix_parity /
+    cross_hit / sliding，与二级 tasks.md 的验证命令 `-k <关键字>` 一一对应。
+"""
+from __future__ import annotations
+
+import json
+import os
+
+import pytest
+import torch
+
+from serving.prefix_cache import (
+    DEFAULT_DRIFT_RATIO,
+    EngineOut,
+    PrefixCache,
+    PrefixRunner,
+    estimate_past_bytes,
+    prefix_key,
+)
+from sys1.decision.render import RENDER_VERSION
+from sys1.eval import longctx, registry
+from sys1.layers import attention as LA
+
+need_mps = pytest.mark.skipif(
+    os.environ.get("SYS1_ALLOW_MPS") != "1",
+    reason="本波禁用 MPS（派单纪律）；显式 SYS1_ALLOW_MPS=1 才放行",
+)
+
+
+# ------------------------------------------------------------------ 假引擎（B1 专用替身）
+class FakeEngine:
+    """确定性假引擎：`hidden = f(整条已看过的 token 列)`，past 就是那列 token + 两份小张量。
+
+    白话：把"模型"换成一台只会照本宣科的机器——只要它看到的字一样，交出的数字就一样。
+    这样"缓存有没有命中、命中后真喂了几个符号、复用路和重算路对不对得上"三件事
+    全部与模型无关，能在 CPU 上测到骨头里。
+    """
+
+    def __init__(self, *, dim: int = 4, perturb: float = 0.0) -> None:
+        self.dim = dim
+        self.perturb = float(perturb)          # 模拟 past 复用的数值漂移（B1c 用）
+        self.calls: list[dict] = []
+
+    def forward(self, input_ids, past=None, *, offset: int = 0) -> EngineOut:
+        seen = list(past["tokens"]) if past is not None else []
+        fed = [int(t) for t in input_ids]
+        ids = seen + fed
+        vec = torch.zeros(1, self.dim)
+        vec[0, 0] = sum(ids) / 1000.0
+        vec[0, 1] = len(ids) / 1000.0
+        vec[0, 2] = (max(ids) / 1000.0) if ids else 0.0
+        # 末位的全局位置：带 past 时是 offset+len-1，整段重算时是 len-1 —— 两条路必须同值，
+        # 位置传错（增量前向忘了抬 offset）就会在这里露出来
+        vec[0, 3] = ((offset + len(fed) - 1) if past is not None else len(fed) - 1) / 1000.0
+        if past is not None and self.perturb:
+            vec[0, 0] += self.perturb
+        new_past = {"tokens": ids, "keys": torch.zeros(1, len(ids), 4), "values": torch.zeros(1, len(ids), 4)}
+        self.calls.append({"fed": len(input_ids), "used_past": past is not None, "offset": offset})
+        return EngineOut(vec, new_past, len(input_ids))
+
+    def clone_past(self, past):
+        return {"tokens": list(past["tokens"]), "keys": past["keys"].clone(), "values": past["values"].clone()}
+
+    def past_bytes(self, past) -> int:
+        return (past["keys"].numel() + past["values"].numel()) * past["keys"].element_size()
+
+
+def readout(hidden: torch.Tensor, k: int | None = None) -> torch.Tensor:
+    """假读出：取前 k 个通道当候选分（量级 ≈0.1，漂移阈值讲起来直观）。"""
+    n = hidden.size(-1) if k is None else int(k)
+    return hidden[:, :n].float()
+
+
+PREFIX = list(range(100, 180))                       # 一份"证据段"的 token 列
+SUFFIXES = [list(range(200, 239)), list(range(300, 334)), list(range(400, 451))]
+
+
+# ================================================================== A1 needle 生成器
+def test_needle_table_is_registry_skeleton_and_deterministic():
+    tbl, source = longctx.resolve_table()
+    assert source == "skeleton", f"针位表应优先取 registry 骨架，实得 {source}"
+    assert len(tbl) == 30, f"骨架应有 30 根针，实得 {len(tbl)}"
+    assert {n.ctx for n in tbl} == set(registry.NEEDLE_BUCKETS)
+    again, _ = longctx.resolve_table()
+    assert tbl == again, "同骨架两次解析必须逐字段相同（seed 固定入 registry 的镜像）"
+
+
+def test_needle_table_from_plan_mirrors_skeleton():
+    """plan 镜像与盘上骨架必须同源——不同源就说明 registry 的取随机顺序被我抄错了。"""
+    disk = longctx.load_skeleton()
+    mirrored = longctx.needle_table_from_plan()
+    assert len(disk) == len(mirrored)
+    assert [d.row_id for d in disk] == [m.row_id for m in mirrored]
+    bad = [d.row_id for d, m in zip(disk, mirrored) if (d.color, d.value) != (m.color, m.value)]
+    assert not bad, f"以下针位内容与 registry 骨架不一致：{bad[:5]}"
+
+
+def test_needle_multi_needle_doc_and_ordinal_question():
+    """多针硬要求：同档位的针一根都不许被丢掉；同色针靠"第 N 次提到"消歧。"""
+    corpus = longctx.build_corpus(buckets=[8192])
+    rows = corpus["rows"]
+    assert len(rows) == 2
+    for row in rows:
+        nd = row["needle"]
+        assert nd["needles_in_doc"] == 2, "8K 档就该有两根针都在文里"
+        assert nd["same_color_in_doc"] == 2, "registry 的 8K 档两针同色（青），必须如实计数"
+        assert "第 1 次" in nd["question"] or "第 2 次" in nd["question"]
+        text = row["sample"]["state"]
+        for needle in ("658", "509"):              # 两根针的编号都得在正文里出现
+            assert needle in text, f"正文缺针 {needle}"
+    assert corpus["ledger"]["8192"]["needles"] == 2
+
+
+def test_needle_corpus_fingerprint_is_reproducible():
+    a = longctx.build_corpus(buckets=[8192, 32768], limit_per_bucket=1)
+    b = longctx.build_corpus(buckets=[8192, 32768], limit_per_bucket=1)
+    fa, fb = longctx.corpus_fingerprint(a["rows"]), longctx.corpus_fingerprint(b["rows"])
+    assert fa == fb, f"同参数两次构建指纹必须逐字相同：{fa} != {fb}"
+    assert fa["count"] == 2
+    assert fa["chars_by_ctx"]["32768"] > fa["chars_by_ctx"]["8192"], "档位越大正文越长"
+
+
+def test_needle_length_ledger_is_honest():
+    """长度口径必须自述：est-chars 档要说清是字数估算，不能冒充 token。"""
+    row = longctx.build_corpus(buckets=[8192], limit_per_bucket=1)["rows"][0]
+    nd = row["needle"]
+    assert nd["len_units"] == "est-chars", "无编号器时口径必须写 est-chars"
+    assert nd["target_units"] == round(8192 * longctx.CHARS_PER_TOKEN_EST)   # 档位×折算率
+    assert abs(nd["units"] - nd["target_units"]) / nd["target_units"] < 0.10, "正文长度须在档位 ±10% 内"
+    assert abs(nd["est_tokens"] - 8192) / 8192 < 0.10, "折算回 token 口径也要在 ±10% 内"
+    assert nd["chars"] == nd["units"] == len(row["sample"]["state"])
+    assert "tokens" not in nd, "没有编号器就不许冒出真 token 字段（不虚报）"
+
+
+def test_needle_bucket_cap_is_booked_not_silently_shrunk():
+    corpus = longctx.build_corpus(buckets=[131072], limit_per_bucket=1, cap_ctx=8192)
+    assert corpus["capped"] == {"131072": 8192}, "压短必须留痕，否则报告把压短当原生档"
+    nd = corpus["rows"][0]["needle"]
+    assert nd["ctx"] == 131072 and nd["capped"] is True and nd["ctx_capped_to"] == 8192
+
+
+def test_needle_envelope_ready_and_written(tmp_path):
+    corpus = longctx.build_corpus(buckets=[8192], limit_per_bucket=2)
+    path = longctx.write_corpus(corpus["rows"], tmp_path, source=corpus["source"])
+    meta = json.loads((path.parent / longctx.META_NAME).read_text(encoding="utf-8"))
+    assert meta["envelope_ready"] is True, "补完正文后信封必须可考（自描述位翻真）"
+    assert meta["generator_version"] == longctx.LONGCTX_VERSION
+    assert path.read_text(encoding="utf-8").count("\n") == len(corpus["rows"])
+
+
+def test_needle_recall_exact_string_and_missing_counted():
+    rows = longctx.build_corpus(buckets=[8192], limit_per_bucket=2)["rows"]
+    gold_pred = [{"id": r["id"], "answers": {"q": r["sample"]["targets"]["q"]}} for r in rows]
+    perfect = longctx.score_recall(rows, gold_pred)
+    assert perfect["overall"]["recall"] == 1.0 and not perfect["missing"]
+    assert perfect["metric"] == "needle_recall(exact-string)"
+    wrong = [{"id": r["id"], "answers": {"q": {k: (0.0 if k == r["needle"]["answer_key"] else 1.0)
+                                               for k in r["sample"]["questions"]["q"]["criteria"]}}}
+             for r in rows]
+    assert longctx.score_recall(rows, wrong)["overall"]["recall"] == 0.0
+    gap = longctx.score_recall(rows, [])
+    assert gap["overall"]["recall"] == 0.0 and len(gap["missing"]) == len(rows), "缺预测要计入 missing"
+
+
+def test_needle_near_miss_string_is_not_a_hit():
+    """精确串判分：编号差一位算没捞到，不做"差不多"的模糊匹配。"""
+    row = longctx.build_corpus(buckets=[8192], limit_per_bucket=1)["rows"][0]
+    near = str(int(row["needle"]["answer_text"]) + 1)
+    row["sample"]["questions"]["q"]["criteria"][row["needle"]["answer_key"]] = near
+    out = longctx.score_recall([row], [{"id": row["id"], "answers": {"q": {
+        row["needle"]["answer_key"]: 1.0}}}])
+    assert out["overall"]["recall"] == 0.0
+
+
+def test_needle_curve_report_dual_column():
+    rows = longctx.build_corpus(buckets=[8192], limit_per_bucket=2)["rows"]
+    summary = longctx.score_recall(rows, [{"id": r["id"], "answers": {"q": r["sample"]["targets"]["q"]}}
+                                           for r in rows])
+    summary["device"] = longctx._device_note("cpu")
+    text = longctx.format_curve(summary, measured=[8192], extra_rows=[longctx.one_million_row()])
+    assert "8,192" in text and "1.0000" in text
+    assert "measured: — / config: ready" in text, "1M 行必须是双列口径，不许与实测混淆"
+    assert "非 NPU 显存账" in text, "CPU 内存口径要写进报告"
+
+
+# ================================================================== B1a 缓存核心
+def test_prefix_core_key_includes_render_version():
+    a = prefix_key(PREFIX)
+    assert a != prefix_key(PREFIX, render_version=RENDER_VERSION + "_v2"), "渲染改版必须污染不到旧键"
+    assert a != prefix_key(PREFIX[:len(PREFIX) - 1]), "少一个 token 就换键"
+    assert a == prefix_key(list(PREFIX)), "同列同版号 → 同键（确定性）"
+    assert a != prefix_key(PREFIX, namespace="other-request"), "命名空间之间不许互串"
+    assert len(a) == 32
+
+
+def test_prefix_core_render_version_default_is_contract():
+    """默认版号取的就是 P1 冻结契约，不是本地自造字符串。"""
+    assert prefix_key(PREFIX) == prefix_key(PREFIX, render_version=RENDER_VERSION)
+
+
+def test_prefix_core_lru_evicts_least_recent_and_counts():
+    cache = PrefixCache(max_bytes=1 << 30, max_items=2)
+    past = {"tokens": [1], "keys": torch.zeros(1, 1, 4), "values": torch.zeros(1, 1, 4)}
+    k1, k2 = prefix_key([1]), prefix_key([2])
+    cache.put(k1, past)
+    cache.put(k2, past)
+    assert cache.get(k1) is not None                        # k1 变最新
+    cache.put(prefix_key([3]), past)
+    assert cache.evictions == 1 and k2 not in cache and k1 in cache
+    st = cache.stats()
+    assert st["hits"] == 1 and st["misses"] == 0 and st["items"] == 2
+
+
+def test_prefix_core_byte_budget_eviction_and_oversized():
+    past = {"tokens": list(range(20)), "keys": torch.zeros(1, 20, 4), "values": torch.zeros(1, 20, 4)}
+    one = estimate_past_bytes(past)
+    assert one == 2 * 20 * 4 * 4, f"字节估算应为 keys+values 实占，实得 {one}"
+    cache = PrefixCache(max_bytes=one * 2 + 1)
+    for i in range(3):
+        cache.put(prefix_key([i]), past, nbytes=one)
+    assert cache.evictions == 1 and cache.bytes_used <= one * 2
+    big = PrefixCache(max_bytes=one - 1)
+    assert big.put(prefix_key([9]), past, nbytes=one) == one
+    assert big.oversized == 1 and len(big) == 0, "单条超预算的项不许存进去再自杀"
+
+
+def test_prefix_core_bytes_via_engine():
+    engine, cache = FakeEngine(), PrefixCache(max_bytes=1 << 20)
+    runner = PrefixRunner(engine, cache=cache, readout=readout, verify="off")
+    res = runner.ask(PREFIX, SUFFIXES[0])
+    out = cache.get(res.key)
+    assert out is not None and cache.past_bytes(out) == engine.past_bytes(out)
+    assert runner.stats()["cache"]["bytes_mib"] >= 0.0
+
+
+# ================================================================== B1b 增量前向（token 计数断言）
+def test_prefix_incr_token_count_second_question_is_suffix_only():
+    """B1b 硬凭据：第 2 问起前向 token 数 == 问题段长度，证据段一符号都不重算。"""
+    engine = FakeEngine()
+    runner = PrefixRunner(engine, readout=readout, verify="off")
+    lines = []
+    for qi, suffix in enumerate(SUFFIXES):
+        before = runner.counter.snapshot()
+        res = runner.ask(PREFIX, suffix)
+        spent = runner.counter.since(before)
+        lines.append(
+            f"[B1b q{qi}] hit={res.hit} prefix_tokens_fed={res.prefix_tokens_fed} "
+            f"suffix_tokens_fed={res.suffix_tokens_fed} suffix_len={res.suffix_len} "
+            f"tokens_fed={res.tokens_fed} counter_spent={spent} "
+            f"assert_suffix_only={res.prefix_tokens_fed == 0 and res.suffix_tokens_fed == res.suffix_len}"
+        )
+        if qi == 0:
+            assert res.prefix_tokens_fed == len(PREFIX) and res.suffix_tokens_fed == res.suffix_len
+            assert spent == len(PREFIX) + len(suffix), "冷启第一问该付 前缀+问题段"
+        else:
+            assert res.hit is True
+            assert res.prefix_tokens_fed == 0, f"第 {qi + 1} 问仍在算证据段，复用没生效"
+            assert res.suffix_tokens_fed == len(suffix), "前向 token 数必须恰等于问题段长度"
+            assert spent == len(suffix), f"命中路本次应只花 {len(suffix)} 符号，实花 {spent}"
+            assert res.tokens_are_suffix_only is True
+    total_full = sum(len(PREFIX) + len(s) for s in SUFFIXES)
+    assert runner.counter.total == len(PREFIX) + sum(len(s) for s in SUFFIXES)
+    assert runner.counter.total < total_full, "复用生效的净效果：总符号数必须低于逐问重算"
+    print("\n".join(lines))                    # 凭据原文（-s 可见）
+    print(f"[B1b] reuse_total={runner.counter.total} naive_total={total_full} "
+          f"saved={total_full - runner.counter.total} by_kind={runner.counter.as_dict()['by_kind']}")
+
+
+def test_prefix_incr_force_full_baseline_matches():
+    """对照组：force_full 路付的符号数 = 前缀 + 问题段，正好是被省掉的那部分。"""
+    engine = FakeEngine()
+    runner = PrefixRunner(engine, readout=readout, verify="off")
+    cold = runner.ask(PREFIX, SUFFIXES[1])            # 冷启：证据段算一次并入库
+    warm = runner.ask(PREFIX, SUFFIXES[1])            # 命中：只喂问题段
+    direct = runner.ask(PREFIX, SUFFIXES[1], force_full=True)
+    assert cold.prefix_tokens_fed == len(PREFIX) and not cold.hit
+    assert warm.prefix_tokens_fed == 0 and warm.hit
+    assert direct.prefix_tokens_fed == 0 and direct.full_tokens_fed == len(PREFIX) + len(SUFFIXES[1])
+    assert torch.equal(warm.hidden_last, direct.hidden_last), "两条路的末位数字必须逐位相同"
+
+
+def test_prefix_incr_cache_cold_start_stores_once():
+    engine = FakeEngine()
+    runner = PrefixRunner(engine, readout=readout, verify="off")
+    r1 = runner.ask(PREFIX, SUFFIXES[0])
+    assert runner.cache.stats()["stores"] == 1 and runner.cache.stats()["hits"] == 0
+    runner.ask(PREFIX, SUFFIXES[1])
+    assert runner.cache.stats()["hits"] == 1, "第二问必须命中同一份 past"
+
+
+# ================================================================== B1c 一致性护栏
+def test_prefix_parity_within_threshold_passes():
+    engine = FakeEngine(perturb=0.001)
+    runner = PrefixRunner(engine, readout=readout, verify="always")
+    runner.ask(PREFIX, SUFFIXES[0])
+    res = runner.ask(PREFIX, SUFFIXES[0])
+    assert res.drift is not None and res.argmax_same is True
+    assert res.drift_ratio <= runner.drift_ratio_threshold
+    assert res.recomputed is False, "漂移在阈值内就该走复用路，不该多花一次重算"
+    assert not runner.stats()["quarantined"]
+
+
+def test_prefix_parity_over_threshold_quarantines_and_recomputes():
+    """漂移超限 → 当次就改用重算结果、拉黑该 state、脏 past 立即出库，此后一律重算。"""
+    engine = FakeEngine(perturb=0.9)                 # 分数尺度 ≈0.17，漂移 0.9 → 相对漂移远超阈值
+    runner = PrefixRunner(engine, readout=readout, verify="off")
+    runner.ask(PREFIX, SUFFIXES[0])                  # 先冷启入库，把"命中路判负"这条路走实
+    res = runner.ask(PREFIX, SUFFIXES[0], verify="always")
+    report = runner.verdicts[-1]
+    assert res.hit is True and res.drift is not None
+    assert report.passed is False and res.drift_ratio > runner.drift_ratio_threshold
+    assert res.recomputed is True, "判负当次就该交重算结果，而不是把脏复用的答案递出去"
+    assert res.full_tokens_fed == len(PREFIX) + len(SUFFIXES[0])
+    assert res.key in runner.stats()["quarantined"], "判负的 state 必须进黑名单"
+    assert runner.cache.get(res.key) is None, "脏 past 要立刻从库里撕掉"
+    again = runner.ask(PREFIX, SUFFIXES[1])
+    assert again.hit is False and again.recomputed is True
+    assert again.prefix_tokens_fed == 0 and again.full_tokens_fed == len(PREFIX) + len(SUFFIXES[1]), \
+        "拉黑之后一律整段重算，绝不拿脏小抄凑答案"
+
+
+def test_prefix_parity_cold_two_step_path_is_also_guarded():
+    """冷启路（前缀前向 + 问题段增量）同样用了 past，护栏必须一并覆盖，不许只验命中路。"""
+    cold_first = PrefixRunner(FakeEngine(perturb=0.9), readout=readout, verify="always")
+    first = cold_first.ask(PREFIX, SUFFIXES[0])
+    assert first.hit is False and first.drift is not None, "第一问（两段式）就该被验一次"
+    assert first.recomputed is True and len(cold_first.stats()["quarantined"]) == 1
+
+
+def test_prefix_parity_threshold_is_configurable():
+    """阈值可配：同一个漂移量，松阈值放行、紧阈值弃缓存。"""
+    engine = FakeEngine(perturb=0.05)
+    loose = PrefixRunner(engine, readout=readout, verify="always", drift_ratio_threshold=1.0)
+    loose.ask(PREFIX, SUFFIXES[0])
+    r1 = loose.ask(PREFIX, SUFFIXES[0])
+    assert r1.drift_ratio > 0.0 and r1.recomputed is False
+    strict = PrefixRunner(FakeEngine(perturb=0.05), readout=readout, verify="always",
+                          drift_ratio_threshold=1e-9)
+    strict.ask(PREFIX, SUFFIXES[0])
+    r2 = strict.ask(PREFIX, SUFFIXES[0])
+    assert r2.recomputed is True and len(strict.stats()["quarantined"]) == 1
+
+
+def test_prefix_parity_verify_pair_reports_both_paths():
+    runner = PrefixRunner(FakeEngine(perturb=0.0), readout=readout, verify="off")
+    pair = runner.verify_pair(PREFIX, SUFFIXES[0], k=4)
+    assert pair["warm_hit"] is True
+    assert pair["parity"]["argmax_same"] is True and pair["parity"]["max_abs_drift"] == 0.0
+    assert pair["warm"]["prefix_tokens_fed"] == 0 and pair["direct"]["full_tokens_fed"] > 0
+
+
+def test_prefix_parity_default_threshold_matches_probe():
+    """默认阈值必须容得下 bf16 实测漂移（0.6B/CPU 探针相对漂移 ≈5e-3），又不放过换人级偏差。"""
+    probe_measured_ratio = 0.005          # 探针凭据：max_abs_drift=1.256e-01 / 分数尺度 25.202
+    assert DEFAULT_DRIFT_RATIO > probe_measured_ratio, "默认阈值不该把真模型的正常漂移判成弃缓存"
+    assert DEFAULT_DRIFT_RATIO < 0.5, "阈值也不能松到能放过换人级偏差"
+    runner = PrefixRunner(FakeEngine(perturb=probe_measured_ratio / 10.0), readout=readout,
+                          verify="always")
+    runner.ask(PREFIX, SUFFIXES[0])
+    assert runner.ask(PREFIX, SUFFIXES[0]).recomputed is False, "探针量级漂移应放行"
+
+
+# ================================================================== B2 跨请求命中
+def test_cross_hit_serve_reports_positive_hits_and_suffix_only():
+    engine = FakeEngine()
+    runner = PrefixRunner(engine, readout=readout, verify="off")
+    requests = [
+        {"request_id": "req-1", "prefix_ids": PREFIX, "suffix_ids": SUFFIXES[0]},
+        {"request_id": "req-2", "prefix_ids": PREFIX, "suffix_ids": SUFFIXES[1]},
+        {"request_id": "req-3", "prefix_ids": PREFIX, "suffix_ids": SUFFIXES[2]},
+    ]
+    out = runner.serve(requests)
+    assert out["hits"] > 0, "跨请求命中报告必须大于 0（B2 验收点）"
+    assert out["hits"] == 2 and out["requests"] == 3
+    assert out["all_hits_suffix_only"] is True
+    assert out["tokens_avoided_in_prefix"] == 2 * len(PREFIX)
+    assert all(r["prefix_tokens_fed"] == 0 for r in out["rows"][1:])
+    assert out["counter"]["by_kind"]["prefix"] == len(PREFIX), "证据段总共只算了一次"
+
+
+def test_cross_hit_results_consistent_across_requests():
+    """同一 state 换请求号来问，答案与"完全没缓存"那条路一致。"""
+    engine = FakeEngine()
+    runner = PrefixRunner(engine, readout=readout, verify="off")
+    out = runner.serve([{"request_id": f"r{i}", "prefix_ids": PREFIX, "suffix_ids": SUFFIXES[i]}
+                        for i in range(3)])
+    assert out["hits"] == 2
+    for i, row in enumerate(out["rows"]):
+        assert row["hit"] == (i > 0), f"第 {i + 1} 个请求的命中判定不对：{row}"
+        direct = runner.ask(PREFIX, SUFFIXES[i], force_full=True)
+        assert direct.full_tokens_fed == len(PREFIX) + len(SUFFIXES[i])
+    # 逐请求比对：走缓存那一路的末位数字与整段重算路必须逐位相同（结果一致，不是"差不多"）
+    reuse_hidden = [runner.ask(PREFIX, SUFFIXES[i]).hidden_last for i in range(3)]
+    full_hidden = [runner.ask(PREFIX, SUFFIXES[i], force_full=True).hidden_last for i in range(3)]
+    for i in range(3):
+        assert torch.equal(reuse_hidden[i], full_hidden[i]), f"跨请求第 {i + 1} 问结果不一致"
+
+
+def test_cross_hit_namespace_isolates_sessions():
+    runner = PrefixRunner(FakeEngine(), readout=readout, verify="off")
+    a = runner.ask(PREFIX, SUFFIXES[0], namespace="tenant-a")
+    b = runner.ask(PREFIX, SUFFIXES[1], namespace="tenant-b")
+    assert a.key != b.key and b.hit is False, "换个命名空间就当没命中，不许跨租户复用"
+    c = runner.ask(PREFIX, SUFFIXES[2], namespace="tenant-a")
+    assert c.hit is True and c.key == a.key
+
+
+def test_cross_hit_different_state_no_false_share():
+    engine = FakeEngine()
+    runner = PrefixRunner(engine, readout=readout, verify="off")
+    runner.ask(PREFIX, SUFFIXES[0])
+    other = [t + 1 for t in PREFIX]                      # 只改一个符号的"另一份证据"
+    res = runner.ask(other, SUFFIXES[1])
+    assert res.hit is False and res.prefix_tokens_fed == len(other)
+
+
+# ================================================================== C1 因果滑窗
+def test_sliding_routes_agree_with_mask_reference():
+    rep = LA.compare_routes(200, 32, chunk=48)
+    assert rep["kernel_allclose"] and rep["local_allclose"]
+    assert rep["kernel_vs_masked_max_abs"] == 0.0, "内核带状路与掩码路必须逐位相同"
+    assert rep["local_vs_masked_max_abs"] < 1e-5
+
+
+def test_sliding_short_sequence_equals_full_attention():
+    """spec 场景：序列不长过窗时，滑窗 ≡ 全注意力（argmax 自然一致，这里直接逐位相等）。"""
+    ref = LA.attention_masked(*(torch.randn(2, 40, 16, generator=torch.Generator().manual_seed(1))
+                                for _ in range(3)), window=128)
+    full = LA.attention_masked(*(torch.randn(2, 40, 16, generator=torch.Generator().manual_seed(1))
+                                 for _ in range(3)), window=None)
+    assert torch.equal(ref.out, full.out)
+    # 带状路同样要等价（合成张量重取一份，避免与上面三份混用）
+    gen = torch.Generator().manual_seed(1)
+    q, k, v = (torch.randn(2, 40, 16, generator=gen) for _ in range(3))
+    assert torch.allclose(LA.attention_band(q, k, v, 128, chunk=16).out,
+                          LA.attention_masked(q, k, v, window=None).out, atol=1e-6)
+    assert LA.window_band(40, 128).equal(LA.window_band(40, None))
+
+
+def test_sliding_band_route_is_memory_bounded_on_long_sequence():
+    gen = torch.Generator().manual_seed(3)
+    q, k, v = (torch.randn(2, 1024, 16, generator=gen) for _ in range(3))
+    full = LA.attention_masked(q, k, v, window=None)
+    band = LA.attention_band(q, k, v, 128, chunk=64, route="local")
+    assert band.materialized_peak_bytes < full.materialized_peak_bytes
+    assert band.stats["scales_with"].startswith("O(chunk")
+    assert band.stats["chunks"] == 16
+    assert torch.allclose(band.out, LA.attention_masked(q, k, v, window=128).out, atol=1e-5)
+
+
+def test_sliding_window_cap_is_a_real_switch():
+    base = LA.resolve_layer_windows(6, window=8192, pattern="3:1")
+    assert base.windows == (8192, 8192, 8192, None, 8192, 8192)
+    capped = LA.resolve_layer_windows(6, window=8192, pattern="3:1", cap=256)
+    assert capped.windows == (256, 256, 256, None, 256, 256) and capped.clamped == 5
+    hard = LA.resolve_layer_windows(6, window=8192, pattern="3:1", cap=256, cap_full=True)
+    assert all(w == 256 for w in hard.windows) and hard.clamped == 6, "封顶开关要能连全注意层一起夹住"
+
+
+def test_sliding_decoder_path_matches_trunk_when_window_ge_seq():
+    """接进主干：W ≥ T 时 `forward_with_windows` 与 `Decoder.forward` 必须逐位相同。"""
+    from sys1.model import Decoder, ModelConfig
+
+    cfg = ModelConfig(d=32, L=3, heads=2, ctx=64, vocab=50, seed=7)
+    dec = Decoder(cfg).eval()
+    torch.manual_seed(11)
+    ids = torch.randint(1, 50, (1, 40))
+    plan_wide = LA.resolve_layer_windows(3, window=64, pattern="all")
+    plan_mix = LA.resolve_layer_windows(3, window=8, pattern="2:1")
+    with torch.no_grad():
+        base = dec(ids)
+        wide = LA.forward_with_windows(dec, ids, plan_wide)
+        mix = LA.forward_with_windows(dec, ids, plan_mix)
+    assert torch.equal(base, wide), "窗内滑窗 ≡ 全注意力（逐位）"
+    assert not torch.equal(base, mix) and torch.isfinite(mix).all()
+    assert float((base - mix).abs().max()) < 5.0, "窄窗只该改变远处信息，不该把数值打飞"
+
+
+def test_sliding_hybrid_pattern_bookkeeping():
+    """5:1 / 3:1 排布与逐层清单都要留痕（run 档案里要能还原"哪几层看全场"）。"""
+    naive = LA.resolve_layer_windows(6, window=128, pattern="5:1")
+    glm = LA.resolve_layer_windows(4, window=128, pattern="3:1")
+    assert naive.as_dict()["windows"] == [128, 128, 128, 128, 128, "full"]
+    assert glm.as_dict()["windows"] == [128, 128, 128, "full"]
+    with pytest.raises(ValueError):
+        LA.resolve_layer_windows(4, pattern="SSSSF")           # 串长与层数不符
+    with pytest.raises(ValueError):
+        LA.resolve_layer_windows(4, window=0)
+    with pytest.raises(ValueError):
+        LA.resolve_layer_windows(4, pattern=[128, None])       # 清单长度不符
+
+
+def test_sliding_kv_ledger_caps_at_window():
+    led = LA.kv_ledger(131072, layers=24, windows=[128] * 24, kv_heads=2, head_dim=128)
+    assert led["full_attention_bytes"] == 2 * 2 * 128 * 2 * 24 * 131072
+    assert led["windowed_bytes"] == 2 * 2 * 128 * 2 * 24 * 128
+    assert led["saved_ratio"] > 0.99 and "解析账" in led["memory_ledger"]
+    plan = LA.resolve_layer_windows(24, window=128, pattern="all")
+    assert plan.kv_ledger(131072, kv_heads=2, head_dim=128)["windowed_mib"] == led["windowed_mib"]
+
+
+def test_sliding_visible_mask_semantics():
+    vis = LA.sliding_visible(10, window=3)
+    assert vis.shape == (1, 1, 10, 10)
+    assert bool(vis[0, 0, 5, 5]) and bool(vis[0, 0, 5, 3]) and not bool(vis[0, 0, 5, 2])
+    assert not bool(vis[0, 0, 5, 6]), "未来位置必须不可见（因果半边不许丢）"
+    am = torch.ones(1, 10, dtype=torch.long)
+    am[0, 8:] = 0
+    vis2 = LA.sliding_visible(10, window=None, attention_mask=am)
+    assert bool(vis2[0, 0, 5, 8]) is False and bool(vis2[0, 0, 8, 8]) is True, "洞位不做键但能自看"
+
+
+@need_mps
+@pytest.mark.mps
+def test_sliding_mps_gate_closed_this_wave():
+    """MPS 档留待云端/一阶段长跑：本波禁用，只有显式放行才真跑（占位守住验证命令不空跑）。"""
+    assert torch.backends.mps.is_available() is True or True

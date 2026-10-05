@@ -13,7 +13,7 @@
     ① 注册表是模块级常量 `REGISTRY: {id: Pin}`。三件套的 pin 由变更文档定死（Intern-Decision
     @`2f81580`、jevbench@`7ce310c7`、typed-decisions@`f7a2487e`），并把本次实测解析出的全长散列一并
     写死——短码会被仓库历史里的同名对象撞车，全长才叫 pin。
-    ② 拉取按来源分派五条路：git 路走 `init + fetch --depth 1 <full-sha> + checkout FETCH_HEAD`；
+    ② 拉取按来源分派六条路（第六条是 p2-09 的派生路：不下载，按已 pin 的副本现推）：git 路走 `init + fetch --depth 1 <full-sha> + checkout FETCH_HEAD`；
     本机实测 git 协议对 github.com 直连被 TLS 掐断，于是同一份内容改走 archive 路——下载 URL 里
     直接带那串全长散列（`codeload.github.com/<repo>/tar.gz/<full-sha>`，实测 200 且真取到 24MB/4.6MB），
     按内容取版本与浅检等价，落盘留 `_source.tar.gz` 原包与散列可复验。HF 路走
@@ -79,6 +79,8 @@ HF_MIRROR_ENDPOINT = "https://hf-mirror.com"
 ARCHIVE_TIMEOUT = 900                 # 单包下载上限（秒）：24MB 实测 <25s，留足抖动
 
 MIN_SUBSET = 200                      # 子集自持副本的题量下限（design §子集策略）
+#: 中文决策信封的转写口径版号（规则住在 sys1/eval/chinese.py；两侧不一致即有用例判红）
+ZH_DECISION_VERSION = "zh_decision_v1"
 NEEDLE_SEED = 20261005                # 合成针的固定 seed（档位/针数见 needle_plan）
 NEEDLE_BUCKETS = (8192, 32768, 131072, 262144)
 QTYPES = ("choice", "noul", "score")  # 与 sys1.data.schema 的三枚取值同源
@@ -123,6 +125,7 @@ class Pin:
     patterns: tuple[str, ...] = ()
     assembler: str = ""
     note: str = ""
+    derived_from: str = ""      # kind="derived" 时填：题面原件的集 id（零流量，按它现推）
 
     def as_dict(self) -> dict[str, Any]:
         """摊成清单条目（登记侧的字段；下载侧的实测字段由 `export_versions` 合并）。
@@ -137,6 +140,7 @@ class Pin:
             "sampler": self.sampler, "qtypes": list(self.qtypes), "axis": self.axis,
             "sources": list(self.sources), "patterns": list(self.patterns),
             "assembler": self.assembler, "note": self.note,
+            "derived_from": self.derived_from,
         }
 
 
@@ -191,7 +195,7 @@ REGISTRY: dict[str, Pin] = {
         full="cmmlu_v1_0_1", seed=NEEDLE_SEED, sampler=f"seeded-subset:{MIN_SUBSET}",
         qtypes=("choice",), axis="quality", sources=("modelscope://modelscope/cmmlu",),
         patterns=("cmmlu_v1_0_1.zip",), assembler="cmmlu",
-        note="中文多选题；决策化成信封由 p2-09 承接，本域只登记 + 产自持子集副本。实测该仓"
+        note="中文多选题的题面原件；决策化信封已交派生集 cmmlu-decision（转写口径 zh_decision_v1），本集只留原件与版本凭证。实测该仓"
              "就一个 1.08MB 的 zip（含全学科 csv）。"),
     "clue-subset": Pin(
         id="clue-subset", kind="modelscope", repo="opencompass/clue", revision="master", split="validation",
@@ -201,7 +205,26 @@ REGISTRY: dict[str, Pin] = {
         note="tnews→choice(15 类)、ocnli→noul。取 validation 不取 test：实测 test 档 label 整列"
              "为 -1（官方隐藏答案——tnews 10000 行、ocnli 3000 行无一带值），没有真值的题面"
              "只能当语料不能当考卷。ModelScope 官方 clue 仓只带加载脚本无数据文件"
-             "（实测文件清单只有 clue.py/dataset_infos.json/README），故取 opencompass/clue 的 parquet 镜像。"),
+             "（实测文件清单只有 clue.py/dataset_infos.json/README），故取 opencompass/clue 的 parquet 镜像。"
+             "决策化信封见派生集 clue-decision（zh_decision_v1）。"),
+    # ── 中文决策信封（p2-09 派生集：零流量，按上面两份题面原件现推）─────────────
+    "cmmlu-decision": Pin(
+        id="cmmlu-decision", kind="derived", repo="sys1:eval.chinese", revision=ZH_DECISION_VERSION,
+        split="test", full="cmmlu_v1_0_1", seed=NEEDLE_SEED, sampler="derived:cmmlu-subset",
+        qtypes=("choice",), axis="quality", sources=(f"derived://{ZH_DECISION_VERSION}/cmmlu-subset",),
+        patterns=(), assembler="zh-cmmlu", derived_from="cmmlu-subset",
+        note="CMMLU 200 题决策化成 choice 信封（k=4，criteria=A/B/C/D 选项文本，问法换中文知识问法）。"
+             "转写口径见 `sys1/eval/chinese.py`；题面原件与版本凭证都在 cmmlu-subset 那一格，本集"
+             "不重复下载、不另钉版本。"),
+    "clue-decision": Pin(
+        id="clue-decision", kind="derived", repo="sys1:eval.chinese", revision=ZH_DECISION_VERSION,
+        split="validation", full="opencompass-clue-parquet", seed=NEEDLE_SEED,
+        sampler="derived:clue-subset", qtypes=("choice", "noul"), axis="quality",
+        sources=(f"derived://{ZH_DECISION_VERSION}/clue-subset",), patterns=(), assembler="zh-clue",
+        derived_from="clue-subset",
+        note="CLUE 400 题决策化：tnews→choice(15 类)、ocnli→noul(蕴含=true，中立/矛盾=false)。"
+             "候选文字沿用源 parquet 自带的类别码 \"100\"..\"116\"（盘上没给码↔类别名对照，"
+             "不凭记忆补名——这条局限随中文 acc 一起披露）。档位随原件取 validation。"),
     "mmbench-cn-subset": Pin(
         id="mmbench-cn-subset", kind="modelscope", repo="lmms-lab/MMBench_CN", revision="master",
         split="dev", full="mmbench-cn-dev-parquet", seed=NEEDLE_SEED,
@@ -250,11 +273,13 @@ FLAG_TO_IDS = {
     "intern": ("intern-decision",),
     "jev": ("jevbench",),
     "cn": ("cmmlu-subset", "clue-subset"),
+    "zh": ("cmmlu-decision", "clue-decision"),
     "mm": ("mmbench-cn-subset",),
     "long": ("longbench-zh",),
     "needle": ("needle-synthetic",),
 }
-EXTRA_IDS = ("cmmlu-subset", "clue-subset", "mmbench-cn-subset", "longbench-zh", "needle-synthetic")
+EXTRA_IDS = ("cmmlu-subset", "clue-subset", "cmmlu-decision", "clue-decision",
+             "mmbench-cn-subset", "longbench-zh", "needle-synthetic")
 THREE_SHEET_IDS = ("typed-decisions", "intern-decision", "jevbench")
 TRAIN_IDS = ("typed-decisions-train",)        # 训练侧登记集（D1）：fetch --all 也带上，底账才完整
 
@@ -379,7 +404,7 @@ def registry_ids(*, groups: tuple[str, ...] = (), ids: tuple[str, ...] = (),
     return tuple(seen)
 
 
-# ---------------------------------------------------------------- 下载（五条路 + 兜底候选源）
+# ---------------------------------------------------------------- 下载（六条路 + 兜底候选源）
 def _sha256(path: Path) -> str:
     """算一个文件的 sha256（分块读，百兆级的大文件也不会一次吞进内存）。"""
     h = hashlib.sha256()
@@ -575,8 +600,34 @@ def _fetch_synthetic(pin: Pin, dst: Path) -> dict[str, Any]:
             "files": 1, "sha256": {out.name: _sha256(out)}}
 
 
+def _fetch_derived(pin: Pin, dst: Path) -> dict[str, Any]:
+    """派生路不下载：只按已 pin 的源副本现推，把"从哪份原件、哪一版推的"写成一页凭据落盘。
+
+    白话：这一格的题不是从网上再拿一遍，而是从盘上那份题面原件誊出来的（中文子集已经 fetch
+    并钉过版本，再下一遍只得多花流量、还多出第二个版本凭证谁也不认）。所以这里零字节是事实：
+    要证明的只有两件事——原件在不在（不在就报命令让人先去 fetch --cn）、原件是哪一版（散列抄下来
+    存进 derived_from.json）。装配规则变了不要指望这条路自动重跑：幂等照旧，改过口径请 --force。
+    """
+    src = REGISTRY.get(pin.derived_from)
+    if src is None:
+        raise FetchError(f"派生集 {pin.id} 的源副本 {pin.derived_from!r} 未登记，无从现推")
+    origin = DATA_DIR / ASSEMBLED_DIR_NAME / src.id / f"{src.id}.jsonl"
+    if not origin.is_file():
+        raise FetchError(f"派生集 {pin.id} 的题面原件不在盘上：{origin}（先跑 "
+                         f"`python -m sys1.eval.registry fetch --sets {src.id}`）")
+    dst.mkdir(parents=True, exist_ok=True)
+    out = dst / "derived_from.json"
+    out.write_text(json.dumps({"from": src.id, "revision": src.revision, "revision_full": src.full,
+                               "split": src.split, "seed": src.seed, "assembler": pin.assembler,
+                               "origin_bytes": origin.stat().st_size, "origin_sha256": _sha256(origin)},
+                              ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"resolved": f"derived:{src.id}@{src.revision}", "bytes": 0, "cached": True, "files": 1,
+            "endpoint": "local", "source": str(origin), "sha256": {out.name: _sha256(out)}}
+
+
 FETCHERS = {"git": _fetch_git, "archive": _fetch_archive, "hf": _fetch_hf,
-            "modelscope": _fetch_modelscope, "synthetic": _fetch_synthetic}
+            "modelscope": _fetch_modelscope, "synthetic": _fetch_synthetic,
+            "derived": _fetch_derived}
 
 
 def _match_any(name: str, patterns: tuple[str, ...]) -> bool:
@@ -1114,10 +1165,25 @@ def needle_plan(seed: int = NEEDLE_SEED) -> dict[str, Any]:
             "metric": "needle_recall(exact-string)", "generator": "p2-07 long-context"}
 
 
+def _assemble_zh_cmmlu(raw: Path) -> list[dict[str, Any]]:
+    """中文 CMMLU → 决策信封：规则与版号住在 p2-09 的 `sys1/eval/chinese.py`，这里只挂个名。"""
+    from sys1.eval import chinese                           # 懒 import：chinese 反向 import 本模块
+
+    return chinese.assemble_cmmlu_decision(raw)
+
+
+def _assemble_zh_clue(raw: Path) -> list[dict[str, Any]]:
+    """中文 CLUE → 决策信封（tnews 多选题 + ocnli 是非题）：同上，口径只在一处。"""
+    from sys1.eval import chinese                           # 懒 import：避免模块级循环引用
+
+    return chinese.assemble_clue_decision(raw)
+
+
 ASSEMBLERS = {"typed": _assemble_typed, "intern": _assemble_intern, "jev": _assemble_jev,
               "typed-train": _assemble_typed_train,
               "cmmlu": _assemble_cmmlu, "clue": _assemble_clue, "mmbench": _assemble_mmbench,
-              "longbench": _assemble_longbench, "needle": _assemble_needle}
+              "longbench": _assemble_longbench, "needle": _assemble_needle,
+              "zh-cmmlu": _assemble_zh_cmmlu, "zh-clue": _assemble_zh_clue}
 
 
 # ---------------------------------------------------------------- 装配的公共小件
@@ -1370,7 +1436,8 @@ def build_parser() -> argparse.ArgumentParser:
     for flag, doc in (("typed", "只拉 typed-decisions"),
                       ("train", "只拉 typed-decisions 的 train 档（训练登记，不入六轴评测表）"),
                       ("intern", "只拉 Intern-Decision"),
-                      ("jev", "只拉 jevbench"), ("cn", "拉中文扩展子集（CMMLU+CLUE）"),
+                      ("jev", "只拉 jevbench"), ("cn", "拉中文扩展子集（CMMLU+CLUE 题面原件）"),
+                      ("zh", "装配中文决策信封（零流量，派生自 --cn 那份题面原件）"),
                       ("mm", "拉 MMBench-CN 子集"), ("long", "拉 LongBench-zh 子集"),
                       ("needle", "只生成合成针计划")):
         fet.add_argument(f"--{flag}", action="store_true", help=doc)
