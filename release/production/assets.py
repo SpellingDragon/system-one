@@ -524,9 +524,10 @@ class Backbone:
         :returns: `(B,T,d)`，dtype 与载入精度一致。
         """
         with torch.no_grad():
-            kwargs: dict[str, Any] = {"input_ids": input_ids, "use_cache": False, "return_dict": True}
+            dev = next(self.body.parameters()).device   # 入参跟随模型设备（CPU 构造/MPS·NPU 载入跨设备必配）
+            kwargs: dict[str, Any] = {"input_ids": input_ids.to(dev), "use_cache": False, "return_dict": True}
             if attn_mask is not None:
-                kwargs["attention_mask"] = attn_mask
+                kwargs["attention_mask"] = attn_mask.to(dev)
             out = self.body(**kwargs)
         return out.last_hidden_state
 
