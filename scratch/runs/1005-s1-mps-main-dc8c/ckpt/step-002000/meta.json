@@ -1,7 +1,7 @@
 {
-  "step": 1250,
+  "step": 2000,
   "config_fingerprint": "1b8e10e7e872",
-  "tokens_seen": 81920000,
+  "tokens_seen": 131072000,
   "files": [
     "model/*",
     "train_state.pt",

@@ -1,0 +1,5 @@
+[s3] run-id          : 1006-s3-calibrate-962f
+[s3] decision config : /Users/pengweiye/Documents/codes/system-one/scratch/runs/1006-s2-decision-sft-1e95/model/decision_config.json
+[s3] pooled          : 无
+[s3] choice: T=5.0000 ECE 0.1709 -> 0.2129 (Δ=+0.0421, improved=False, pooled=False)
+[s3] noul: T=1.1500 ECE 0.0126 -> 0.0009 (Δ=-0.0117, improved=True, pooled=False)

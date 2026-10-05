@@ -1,0 +1,5 @@
+[s2] run-id      : 1006-s2-decision-sft-1e95
+[s2] model dir   : /Users/pengweiye/Documents/codes/system-one/scratch/runs/1006-s2-decision-sft-1e95/model
+[s2] all_beat    : True
+[s2] acc choice/k=3: 0.6364 (baseline 0.3333) beats=True
+[s2] acc noul/k=2: 0.5789 (baseline 0.5000) beats=True
