@@ -1,0 +1,8 @@
+....................s                                                    [100%]
+=============================== warnings summary ===============================
+tests/test_ascend_gradcheck.py::test_gdn_cpu_backward_declared_partial_but_grads_are_correct
+  /Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gdn_asc.py:247: RuntimeWarning: 方言后端 [gdn_backward[cpu]] 不可用，已回退 torch eager：本波未内核化：昇腾方言无 Gated DeltaRule 反向先例（见 gdn_asc 模块 docstring）
+    ascend_env.record_blocker(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+20 passed, 1 skipped, 1 warning in 5.18s

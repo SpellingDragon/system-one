@@ -1,0 +1,7 @@
+fwd_err 3.999417304992676
+vslot 0.0 same_obj False
+2026-10-05 14:47:24  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `rope_impl` with `out_idx=[]`
+2026-10-05 14:47:28  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `rope_impl`
+roundtrip 2.384185791015625e-07
+bwd_err 3.7958807945251465
+entry_ok True nc 2 blk {}

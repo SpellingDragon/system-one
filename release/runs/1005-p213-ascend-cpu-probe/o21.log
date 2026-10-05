@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+TypeError: backward() takes 2 positional arguments but 4 were given
+fwd 0.0

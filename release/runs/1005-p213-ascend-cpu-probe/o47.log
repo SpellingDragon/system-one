@@ -1,0 +1,53 @@
+== C1 探针：p2-13 昇腾运行时 ==
+[C1/1] 版本口径: PASS — python=3.12.8 torch=2.14.1 tilelang=0.1.15 ASCEND_HOME_PATH=<未设置> ASCEND_NPU_ARCH=<默认 dav-3510>
+[C1/2] 方言导入: PASS — 方言可导入，13 项关键原语齐备（ascend.language 共 629 符号）
+2026-10-05 16:01:51  [TileLang:tilelang.language.eager.builder:CRITICAL] (builder.py:1797): Failed to build prim_func from probe
+args={'A': A, 'C': C}
+source=def make_closure(T):
+
+    def probe(__tb):
+        __tb_fl = '/Users/pengweiye/Documents/codes/system-one/release/ascend/selfcheck.py'
+        __tb_fn = 'probe'
+        __tb.set_fileline(__tb_fl, 82, __tb_fn)
+
+        def probe(A, C, **__kwargs):
+            __tb.set_fileline(__tb_fl, 82, __tb_fn)
+            A = __tb.arg('A', A)
+            __tb.set_fileline(__tb_fl, 82, __tb_fn)
+            C = __tb.arg('C', C)
+            __tb.set_fileline(__tb_fl, 83, __tb_fn)
+            __tb.eval('selfcheck 的昇腾探针件：一次搬入、一次并行乘二、一次搬出。\n\n    白话：这段只回答"昇腾方言能不能 lowering 成产物"，故意不带任何业务算式，这样报出来\n    的失败只可能指向环境，不会被误读成"内核写错了"。\n    \n    ')
+            __tb.set_fileline(__tb_fl, 1, __tb_fn)
+            if __tb.skip_kernel_ctx():
+                __tb.set_fileline(__tb_fl, 1, __tb_fn)
+                return
+            __tb.set_fileline(__tb_fl, 89, __tb_fn)
+            with __tb.ctx_with(__tb.resolve_call(__tb.rval('T', T).Kernel)(1)) as bx:
+                __tb.set_fileline(__tb_fl, 90, __tb_fn)
+                a = __tb.bind('a', __tb.resolve_call(__tb.rval('T', T).alloc_shared)((64,), 'float32'))
+                __tb.set_fileline(__tb_fl, 91, __tb_fn)
+                c = __tb.bind('c', __tb.resolve_call(__tb.rval('T', T).alloc_shared)((64,), 'float32'))
+                __tb.set_fileline(__tb_fl, 92, __tb_fn)
+                __tb.eval(__tb.resolve_call(__tb.rval('T', T).copy)(__tb.rval('A', A)[0:64], __tb.rval('a', a)))
+                __tb.set_fileline(__tb_fl, 93, __tb_fn)
+                with __tb.ctx_with(__tb.resolve_call(__tb.rval('T', T).SimtVF)(threads=64)):
+                    __tb.set_fileline(__tb_fl, 94, __tb_fn)
+                    for __0 in __tb.ctx_for(__tb.iter_call(__tb.resolve_call(__tb.rval('T', T).Parallel), 64)):
+                        __tb.set_fileline(__tb_fl, 94, __tb_fn)
+                        i = __tb.bind('i', __0, loop_target=True)
+                        __tb.set_fileline(__tb_fl, 95, __tb_fn)
+                        __tb.assign_slice(__tb.rval('c', c), __tb.rval('i', i), __tb.rval('a', a)[__tb.rval('i', i)] * 2)
+                __tb.set_fileline(__tb_fl, 96, __tb_fn)
+                __tb.eval(__tb.resolve_call(__tb.rval('T', T).copy)(__tb.rval('c', c), __tb.rval('C', C)[0:64]))
+        return probe
+    return probe
+[C1/3] 最小件 lowering: KNOWN-GAP — AttributeError: Check failed: (reg != nullptr) is false: Operator tl.tileop.ascend_copy is not registered
+[C1/4] 设备在位: SKIP — 未安装 torch_npu（无 torch.npu 命名空间）
+[C1/5] AscendC 编译器: KNOWN-GAP — RuntimeError: Cannot find the bisheng compiler.Please install it and make sure it is in PATH, or set the BISHENG_HOME environment variable.
+[C1/6] 后端切换判据: PASS — /dev/davinci_manager 存在=False 与 torch.npu 可用=False 一致（未设 TILEKERNELS_ROOT，只做判据核对，不 import 外部件）
+[C1/7] torch_npu 前向参照: SKIP — 无可用昇腾设备，参照系留到开卡后再采
+[C1/8] bf16/fp16 数值行为: PASS — float16: 出口降位=2.98e-02 中间降位=2.98e-02；bfloat16: 出口降位=2.17e-01 中间降位=2.83e-01（对拍容差据此定：本栈 fp16/bf16 取 2e-2）
+[C1/9] CPU 语义链路: PASS — CPU(c) 后端编译+发射可用，max_err=0.00e+00
+—— 汇总：PASS=5 FAIL=0 SKIP=2 KNOWN-GAP=2 ——
+结论行（抄入 run notes）：以上 FAIL 任一项即触发 D6 回退决策（改走 torch_npu 底座，算子故事降级为基准表+回退记录）
+SELFCHK_EXIT=0

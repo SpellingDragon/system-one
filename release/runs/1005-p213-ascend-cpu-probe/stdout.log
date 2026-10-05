@@ -1,0 +1,5 @@
+/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/ascend_env.py:246: RuntimeWarning: 方言后端 [cpu|gemm[cpu]|n16k32b16x16x32arelu] 不可用，已回退 torch eager：NameError: name 'n' is not defined
+  record_blocker(full, exc)
+spec gemm[cpu]|n16k32b16x16x32arelu
+run False
+err 11.434736251831055

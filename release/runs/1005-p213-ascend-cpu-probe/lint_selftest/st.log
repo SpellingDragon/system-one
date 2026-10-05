@@ -1,0 +1,4 @@
+扫描 2 个文件（ascend/ 全量）
+  信息: ascend/kernels/bad_host.py: 带 future-import，1 个被追踪函数的注解名字在体内也有出现（实测安全）
+发现问题：
+  ascend/kernels/bad_dialect_asc.py: 方言件带 future-import（坑①红线，件形一律禁）

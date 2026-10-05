@@ -1,0 +1,46 @@
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp_s1cq4l8.cpp:19:59: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                           ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp_s1cq4l8.cpp:19:74: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                          ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp_s1cq4l8.cpp:19:89: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                                         ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp_s1cq4l8.cpp:28:29: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                             ^~~~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp_s1cq4l8.cpp:28:46: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                                              ^~~~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp_s1cq4l8.cpp:28:63: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                                                               ^~~~~~~~~~~~~~~
+6 warnings generated.
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpgkgmxin2.cpp:19:59: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                           ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpgkgmxin2.cpp:19:74: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                          ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpgkgmxin2.cpp:19:89: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                                         ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpgkgmxin2.cpp:28:29: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                             ^~~~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpgkgmxin2.cpp:28:46: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                                              ^~~~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpgkgmxin2.cpp:28:63: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                                                               ^~~~~~~~~~~~~~~
+6 warnings generated.
+2026-10-05 14:25:03  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `gemm_impl` with `out_idx=[]`
+2026-10-05 14:25:06  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `gemm_impl`
+m 8 none biadz 1 rowerr [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+2026-10-05 14:25:06  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `gemm_impl` with `out_idx=[]`
+2026-10-05 14:25:08  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `gemm_impl`
+m 8 relu biadz 1 rowerr [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+m 8 none biadz 0 rowerr [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+m 16 none biadz 1 rowerr [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

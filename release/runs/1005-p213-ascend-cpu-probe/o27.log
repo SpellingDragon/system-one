@@ -1,0 +1,13 @@
+spec rope[cpu]|h3d8s2g1 [('dim', 8), ('heads', 3), ('sign', 1), ('slots', 2)]
+run_ok True changed 4.999515533447266
+SRC_LINES 28
+  | int32_t rope_impl_kernel(float* Cos, float* QKV, float* Sin, int32_t tokens);
+  | int32_t rope_impl_kernel(float* Cos, float* QKV, float* Sin, int32_t tokens) {
+  | for (int32_t t = 0; t < tokens; ++t) {
+  | for (int32_t s = 0; s < 2; ++s) {
+  | for (int32_t hh = 0; hh < 3; ++hh) {
+  | for (int32_t j = 0; j < 4; ++j) {
+  | float x1 = QKV[((((((int64_t)t) * (int64_t)72) + (((int64_t)s) * (int64_t)24)) + (((int64_t)hh) * (int64_t)8))
+  | float x2 = QKV[(((((((int64_t)t) * (int64_t)72) + (((int64_t)s) * (int64_t)24)) + (((int64_t)hh) * (int64_t)8)
+  | QKV[((((((int64_t)t) * (int64_t)72) + (((int64_t)s) * (int64_t)24)) + (((int64_t)hh) * (int64_t)8)) + ((int64_
+  | QKV[(((((((int64_t)t) * (int64_t)72) + (((int64_t)s) * (int64_t)24)) + (((int64_t)hh) * (int64_t)8)) + ((int64

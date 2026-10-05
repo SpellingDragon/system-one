@@ -1,0 +1,12 @@
+/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gdn_asc.py:247: RuntimeWarning: 方言后端 [gdn_backward[cpu]] 不可用，已回退 torch eager：本波未内核化：昇腾方言无 Gated DeltaRule 反向先例（见 gdn_asc 模块 docstring）
+  ascend_env.record_blocker(
+gdn_fwd_err 1.7881393432617188e-07
+gdn_batch_err 1.7881393432617188e-07 shape (1, 2, 24, 8)
+gdn_bwd_status partial
+gdn_bwd_errs [0.0, 0.0, 0.0, 0.0, 0.0]
+lora_fwd_err 0.0
+lora_base_err 0.0
+lora_bwd_errs 1e-07 5e-07 0.0
+lora_merge_err 2.9802322387695312e-08
+apply_vs_merge 8.940696716308594e-08
+nc 1 blk {'gdn_backward[cpu]': '本波未内核化：昇腾方言无 Gated DeltaRule 反向先例（见 gdn_asc 模块 docstring）'} keys ['cpu|gdn[cpu]|h2k8v8']

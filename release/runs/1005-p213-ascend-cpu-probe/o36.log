@@ -1,0 +1,9 @@
+kernel_err 3.5762786865234375e-07
+Traceback (most recent call last):
+  File "/Users/pengweiye/Documents/codes/system-one/release/runs/1005-p213-ascend-cpu-probe/rp_attn.py", line 18, in <module>
+    p1 = attn_sw_ref(q, k, v, WINDOW, scale, torch.float32)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/sys1/testing/torch_ref/attn_sw_ref.py", line 112, in attn_sw_ref
+    if q.size(3) != k.size(3):
+       ^^^^^^^^^
+IndexError: Dimension out of range (expected to be in range of [-3, 2], but got 3)

@@ -1,0 +1,28 @@
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpo4alp_it.cpp:29:57: warning: left operand of comma operator has no effect [-Wunused-value]
+   29 |         *(float4*)(S + ((i * 8) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                         ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpo4alp_it.cpp:29:72: warning: left operand of comma operator has no effect [-Wunused-value]
+   29 |         *(float4*)(S + ((i * 8) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                        ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpo4alp_it.cpp:29:87: warning: left operand of comma operator has no effect [-Wunused-value]
+   29 |         *(float4*)(S + ((i * 8) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                                       ^~~~~~~~~~~~~
+3 warnings generated.
+/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gdn_asc.py:247: RuntimeWarning: 方言后端 [gdn_backward[cpu]] 不可用，已回退 torch eager：本波未内核化：昇腾方言无 Gated DeltaRule 反向先例（见 gdn_asc 模块 docstring）
+  ascend_env.record_blocker(
+2026-10-05 15:24:18  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `gdn_impl` with `out_idx=[]`
+2026-10-05 15:24:21  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `gdn_impl`
+gdn_fwd_err 1.7881393432617188e-07
+gdn_batch_err 1.7881393432617188e-07 shape (1, 2, 24, 8)
+gdn_bwd_status partial
+Traceback (most recent call last):
+  File "/Users/pengweiye/Documents/codes/system-one/release/runs/1005-p213-ascend-cpu-probe/rp_gdn_lora.py", line 24, in <module>
+    gr = gdn_asc.backward(q, k, v, g, beta, dy, "cpu")
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gdn_asc.py", line 253, in backward
+    return tuple(t.grad.contiguous() for t in leaves)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gdn_asc.py", line 253, in <genexpr>
+    return tuple(t.grad.contiguous() for t in leaves)
+                 ^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'contiguous'

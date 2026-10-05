@@ -1,0 +1,7 @@
+/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/ascend_env.py:133: RuntimeWarning: 方言后端 [ascend:probe] 不可用，已回退 torch eager：本机没有可用昇腾设备（torch.npu.is_available()=False）
+  record_blocker(f"{name}:probe", "本机没有可用昇腾设备（torch.npu.is_available()=False）")
+backend_available(cpu)  = True
+backend_available(ascend)= False
+active_backend(cpu)     = tilelang
+blockers                = {'ascend:probe': '本机没有可用昇腾设备（torch.npu.is_available()=False）'}
+PROBE_EXIT=0

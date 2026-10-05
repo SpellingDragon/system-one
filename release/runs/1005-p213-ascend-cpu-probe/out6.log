@@ -1,0 +1,33 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gemm_asc.py", line 188, in run
+    kernel(A, W, zero, C, **kwargs)
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/jit/__init__.py", line 541, in __call__
+    self.mode = self._infer_jit_mode(*args, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/jit/__init__.py", line 406, in _infer_jit_mode
+    is_lazy_style = self.func._is_lazy_style(*args, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/language/eager/builder.py", line 1660, in _is_lazy_style
+    prim_func = self.orig_func(*args, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gemm_asc.py", line 61, in gemm_cpu_impl
+    @T.prim_func
+     ^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/language/eager/builder.py", line 1800, in prim_func
+    return impl(func) if func is not None else impl
+           ^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/language/eager/builder.py", line 1764, in impl
+    func_annot = get_type_hints(func)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/language/eager/builder.py", line 1171, in get_type_hints
+    hints[name] = _eval_type(value, globalns=globalns, localns=localns)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/miniconda3/lib/python3.12/typing.py", line 415, in _eval_type
+    return t._evaluate(globalns, localns, type_params, recursive_guard=recursive_guard)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/miniconda3/lib/python3.12/typing.py", line 947, in _evaluate
+    eval(self.__forward_code__, globalns, localns),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 1, in <module>
+NameError: name 'n' is not defined

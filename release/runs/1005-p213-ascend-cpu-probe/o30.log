@@ -1,0 +1,13 @@
+ids [0, 0, 13, 15, 0]
+Traceback (most recent call last):
+  File "/Users/pengweiye/Documents/codes/system-one/release/runs/1005-p213-ascend-cpu-probe/rp_lro.py", line 13, in <module>
+    out = letter_readout_asc.forward(rows, ids, torch.float32, "cpu")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/letter_readout_asc.py", line 199, in forward
+    _check(rows, ids)
+  File "/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/letter_readout_asc.py", line 244, in _check
+    if ids.dim() != 1 or not torch.is_integer(ids.dtype):
+                             ^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/torch/__init__.py", line 3413, in __getattr__
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+AttributeError: module 'torch' has no attribute 'is_integer'

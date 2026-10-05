@@ -1,0 +1,198 @@
+FFF...........FF...                                                      [100%]
+=================================== FAILURES ===================================
+_______________________ test_gemm_cpu_matches_torch_ref ________________________
+
+    def test_gemm_cpu_matches_torch_ref():
+        """前向乘加：与 P1 gemm_ref 逐元素对齐（无激活 / relu / 带偏置三种口径）。"""
+        torch.manual_seed(1)
+        a = torch.randn(33, 16)          # 行数故意不整除块高 16，验边界守卫
+        w = torch.randn(10, 16)
+        bias = torch.randn(10)
+        for act, use_bias in (("none", False), ("none", True), ("relu", True)):
+            b = bias if use_bias else None
+            got = gemm_kernel.forward(a, w, b, act, torch.float32, TARGET)
+            want = gemm_ref(a, w, b, act, torch.float32)
+            torch.testing.assert_close(got, want, **TOL)
+>       _assert_kernel_ran("gemm[")
+
+tests/test_ascend_gradcheck.py:85: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fragment = 'gemm['
+
+    def _assert_kernel_ran(fragment: str) -> None:
+        """硬证据：该件在 cpu target 上确实编译过，并且没被记进阻塞账（防"回退冒充通过"）。
+    
+        白话：光看结果对不对不够，还得看这台机器是不是真的开了模具跑过——只在架子上找得到
+        这件的产物、并且它不在"没走通"的小账本上，才算它真的干过活。
+        """
+        keys = [k for k in ascend_env.compiled_keys() if f"[{TARGET}]" in k and fragment in k]
+>       assert keys, f"未见 {fragment} 的编译产物，实际键 = {sorted(ascend_env.compiled_keys())}"
+E       AssertionError: 未见 gemm[ 的编译产物，实际键 = []
+E       assert []
+
+tests/test_ascend_gradcheck.py:59: AssertionError
+___________________ test_gemm_cpu_reuses_single_compilation ____________________
+
+    def test_gemm_cpu_reuses_single_compilation():
+        """同一形状的第二个批次必须命中缓存：compile_count 不涨才是"同一份产物服务多批"。"""
+        torch.manual_seed(2)
+        w = torch.randn(10, 16)
+        base = ascend_env.compile_count()
+        first = gemm_kernel.forward(torch.randn(8, 16), w, None, "none", torch.float32, TARGET)
+        mid = ascend_env.compile_count()
+        second = gemm_kernel.forward(torch.randn(64, 16), w, None, "none", torch.float32, TARGET)
+        assert ascend_env.compile_count() == mid, "M 轴是动态维，换批不应该再开一次模具"
+        assert mid >= base
+>       torch.testing.assert_close(first, gemm_ref(first, w, None, "none", torch.float32), **TOL)
+                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_ascend_gradcheck.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+A = tensor([[-4.5572, -0.3950,  2.4733, -3.1833, -4.4423,  5.1969, -1.7615, -1.9359,
+          2.1463, -1.9015],
+        [... 5.8751],
+        [-0.5537,  2.0469, -0.6207,  2.2999, -0.0638, -0.3868, -1.2963, -0.2125,
+         -1.2200, -1.8037]])
+W = tensor([[-1.0408,  0.9166, -1.3042, -1.1097, -1.2188,  1.1676, -1.0574, -0.1188,
+         -0.9078,  0.3452, -0.5713, -...  2.2039, -0.6589,  1.3314, -0.4498,
+          0.5493,  0.0539,  0.2601,  0.8570,  2.5211, -0.0452, -0.3105, -0.9407]])
+bias = None, act = 'none', out_dtype = torch.float32
+
+    def gemm_ref(
+        A: torch.Tensor,
+        W: torch.Tensor,
+        bias: torch.Tensor | None = None,
+        act: str = "relu",
+        out_dtype: torch.dtype | None = torch.float16,
+    ) -> torch.Tensor:
+        """C = act(A @ Wᵀ + bias)，中间量 fp32，出口降到 out_dtype（None 表示保 fp32）。
+    
+        形状约定与内核完全一致：A 是 (M, K) 的一批行向量，W 是 (N, K) 的 N 组权重行
+        （所以是"乘 W 的转置"，而不是 (K, N)），bias 是 (N,)。M 可以是任意正整数——
+        这条参考实现不做任何长度对齐假设，动态 M 的可变性由内核负责复现。
+    
+        白话：一批东西各带一串数字，另一批"模板"也各带同样长的串；每样东西跟每个模板逐项
+        相乘再全加起来，得到一个分数，加上该模板自带的加成，再过一道拐弯，就是答案表。
+        """
+        if A.dim() != 2 or W.dim() != 2:
+            raise ValueError(f"A 需为 (M, K) 二维、W 需为 (N, K) 二维，实得 {tuple(A.shape)} / {tuple(W.shape)}")
+        if A.size(1) != W.size(1):
+>           raise ValueError(f"K 轴不匹配：A 的 K={A.size(1)}，W 的 K={W.size(1)}")
+E           ValueError: K 轴不匹配：A 的 K=10，W 的 K=16
+
+sys1/testing/torch_ref/gemm_ref.py:61: ValueError
+___________________ test_gemm_bwd_dw_cpu_matches_torch_ruler ___________________
+
+    def test_gemm_bwd_dw_cpu_matches_torch_ruler():
+        """权重梯度 dW = dYᵀ @ A：与 torch 直写对齐，并覆盖"多批累加"这一常见误写。"""
+        torch.manual_seed(3)
+        dy = torch.randn(33, 10)
+        a = torch.randn(33, 16)
+        got = gemm_bwd_dw_kernel.backward(dy, a, out_dtype=torch.float32, target=TARGET)
+        torch.testing.assert_close(got, dy.T @ a, **TOL)
+        assert got.shape == (10, 16)
+>       _assert_kernel_ran("gemm_dw[")
+
+tests/test_ascend_gradcheck.py:110: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fragment = 'gemm_dw['
+
+    def _assert_kernel_ran(fragment: str) -> None:
+        """硬证据：该件在 cpu target 上确实编译过，并且没被记进阻塞账（防"回退冒充通过"）。
+    
+        白话：光看结果对不对不够，还得看这台机器是不是真的开了模具跑过——只在架子上找得到
+        这件的产物、并且它不在"没走通"的小账本上，才算它真的干过活。
+        """
+        keys = [k for k in ascend_env.compiled_keys() if f"[{TARGET}]" in k and fragment in k]
+>       assert keys, f"未见 {fragment} 的编译产物，实际键 = {sorted(ascend_env.compiled_keys())}"
+E       AssertionError: 未见 gemm_dw[ 的编译产物，实际键 = []
+E       assert []
+
+tests/test_ascend_gradcheck.py:59: AssertionError
+________________ test_lora_cpu_apply_matches_direct_expression _________________
+
+    def test_lora_cpu_apply_matches_direct_expression():
+        """旁路增量 delta = s·(x @ Aᵀ) @ Bᵀ：与直写表达式对齐，并验 base 叠加。"""
+        torch.manual_seed(15)
+        m, n, kk, r, s = 12, 10, 16, 4, 0.5
+        x = torch.randn(m, kk)
+        a = torch.randn(r, kk) * 0.2
+        b = torch.randn(n, r) * 0.2
+        delta = (x @ a.T) @ (b * s).T
+        got = lora_kernel.apply(x, a, b, s, None, torch.float32, TARGET)
+        torch.testing.assert_close(got, delta, **TOL)
+        base = torch.randn(m, n)
+        torch.testing.assert_close(lora_kernel.apply(x, a, b, s, base, torch.float32, TARGET),
+                                   base + delta, **TOL)
+>       _assert_kernel_ran("gemm[")                 # 组合件不产自己的 key，复用 linear 两件
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_ascend_gradcheck.py:335: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fragment = 'gemm['
+
+    def _assert_kernel_ran(fragment: str) -> None:
+        """硬证据：该件在 cpu target 上确实编译过，并且没被记进阻塞账（防"回退冒充通过"）。
+    
+        白话：光看结果对不对不够，还得看这台机器是不是真的开了模具跑过——只在架子上找得到
+        这件的产物、并且它不在"没走通"的小账本上，才算它真的干过活。
+        """
+        keys = [k for k in ascend_env.compiled_keys() if f"[{TARGET}]" in k and fragment in k]
+>       assert keys, f"未见 {fragment} 的编译产物，实际键 = {sorted(ascend_env.compiled_keys())}"
+E       AssertionError: 未见 gemm[ 的编译产物，实际键 = ['cpu|add_ln[cpu]|d32e1e-05b16', 'cpu|attn_sw[cpu]|h1d16w20b16x16', 'cpu|attn_sw[cpu]|h2d16w8b16x16', 'cpu|gather[cpu]|d16', 'cpu|gdn[cpu]|h2k8v8', 'cpu|ln_bwd[cpu]|d32e1e-05b16', 'cpu|rope[cpu]|h2d16s2g1', 'cpu|rope[cpu]|h3d16s2g-1', 'cpu|rope[cpu]|h3d16s2g1', 'cpu|scatter_add[cpu]|d16']
+E       assert []
+
+tests/test_ascend_gradcheck.py:59: AssertionError
+___________________ test_lora_cpu_backward_matches_autograd ____________________
+
+    def test_lora_cpu_backward_matches_autograd():
+        """反向三条链 (dx, dA, dB)：与同一条旁路的自动微分交叉。"""
+        torch.manual_seed(16)
+        m, n, kk, r, s = 12, 10, 16, 4, 0.5
+        x = torch.randn(m, kk)
+        a = torch.randn(r, kk) * 0.2
+        b = torch.randn(n, r) * 0.2
+        dy = torch.randn(m, n)
+        leaves = [t.clone().requires_grad_(True) for t in (x, a, b)]
+        xl, al, bl = leaves
+        want = torch.autograd.grad((xl @ al.T) @ (bl * s).T, leaves, dy)
+        got = lora_kernel.backward(dy, x, a, b, s, TARGET)
+        for name, got_one, want_one in zip(("dx", "dA", "dB"), got, want):
+            torch.testing.assert_close(got_one, want_one, **TOL, msg=f"{name} 与自动微分不一致")
+>       _assert_kernel_ran("gemm_dw[")              # dA/dB 两条链确实是 dW 件算出来的
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_ascend_gradcheck.py:352: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fragment = 'gemm_dw['
+
+    def _assert_kernel_ran(fragment: str) -> None:
+        """硬证据：该件在 cpu target 上确实编译过，并且没被记进阻塞账（防"回退冒充通过"）。
+    
+        白话：光看结果对不对不够，还得看这台机器是不是真的开了模具跑过——只在架子上找得到
+        这件的产物、并且它不在"没走通"的小账本上，才算它真的干过活。
+        """
+        keys = [k for k in ascend_env.compiled_keys() if f"[{TARGET}]" in k and fragment in k]
+>       assert keys, f"未见 {fragment} 的编译产物，实际键 = {sorted(ascend_env.compiled_keys())}"
+E       AssertionError: 未见 gemm_dw[ 的编译产物，实际键 = ['cpu|add_ln[cpu]|d32e1e-05b16', 'cpu|attn_sw[cpu]|h1d16w20b16x16', 'cpu|attn_sw[cpu]|h2d16w8b16x16', 'cpu|gather[cpu]|d16', 'cpu|gdn[cpu]|h2k8v8', 'cpu|ln_bwd[cpu]|d32e1e-05b16', 'cpu|rope[cpu]|h2d16s2g1', 'cpu|rope[cpu]|h3d16s2g-1', 'cpu|rope[cpu]|h3d16s2g1', 'cpu|scatter_add[cpu]|d16']
+E       assert []
+
+tests/test_ascend_gradcheck.py:59: AssertionError
+=============================== warnings summary ===============================
+tests/test_ascend_gradcheck.py::test_gdn_cpu_backward_declared_partial_but_grads_are_correct
+  /Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gdn_asc.py:247: RuntimeWarning: 方言后端 [gdn_backward[cpu]] 不可用，已回退 torch eager：本波未内核化：昇腾方言无 Gated DeltaRule 反向先例（见 gdn_asc 模块 docstring）
+    ascend_env.record_blocker(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_ascend_gradcheck.py::test_gemm_cpu_matches_torch_ref - Asse...
+FAILED tests/test_ascend_gradcheck.py::test_gemm_cpu_reuses_single_compilation
+FAILED tests/test_ascend_gradcheck.py::test_gemm_bwd_dw_cpu_matches_torch_ruler
+FAILED tests/test_ascend_gradcheck.py::test_lora_cpu_apply_matches_direct_expression
+FAILED tests/test_ascend_gradcheck.py::test_lora_cpu_backward_matches_autograd
+5 failed, 14 passed, 1 deselected, 1 warning in 18.91s

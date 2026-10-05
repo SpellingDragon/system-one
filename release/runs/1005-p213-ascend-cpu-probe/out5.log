@@ -1,0 +1,2 @@
+(func: 'Callable[_P, _T] | PrimFunc | None' = None, *, out_idx: 'list[int] | int | None' = None, target: 'TargetLike | None' = None, target_host: 'TargetLike | None' = None, execution_backend: 'ExecutionBackend | None' = None, verbose: 'bool | None' = None, pass_configs: 'dict[str, Any] | None' = None, debug_root_path: 'str | None' = None, compile_flags: 'list[str] | str | None' = None) -> 'Callable[[Callable[_P, _T]], JITImpl[_KP, _KP, _T, _T]]'
+<class 'function'>

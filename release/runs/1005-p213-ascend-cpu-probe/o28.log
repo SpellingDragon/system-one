@@ -1,0 +1,7 @@
+fwd_err 1.1920928955078125e-07
+vslot 0.0
+inplace_same_obj True
+roundtrip 0.0
+bwd_err 2.384185791015625e-07
+eager_err 0.0 eager_same_obj True
+entry_err 2.384185791015625e-07 nc 2 blk {} keys ['cpu|rope[cpu]|h3d8s2g-1', 'cpu|rope[cpu]|h3d8s2g1']

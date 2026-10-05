@@ -1,0 +1,22 @@
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpn758nlg5.cpp:19:59: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                           ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpn758nlg5.cpp:19:74: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                          ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpn758nlg5.cpp:19:89: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                                         ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpn758nlg5.cpp:28:29: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                             ^~~~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpn758nlg5.cpp:28:46: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                                              ^~~~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpn758nlg5.cpp:28:63: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                                                               ^~~~~~~~~~~~~~~
+6 warnings generated.
+2026-10-05 14:16:35  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `gemm_impl` with `out_idx=None`
+2026-10-05 14:16:37  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `gemm_impl`
+ERR 11.106752395629883

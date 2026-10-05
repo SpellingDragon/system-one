@@ -1,0 +1,28 @@
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp86cgildb.cpp:20:29: warning: left operand of comma operator has no effect [-Wunused-value]
+   20 |         condval = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                             ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp86cgildb.cpp:20:44: warning: left operand of comma operator has no effect [-Wunused-value]
+   20 |         condval = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                            ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmp86cgildb.cpp:20:59: warning: left operand of comma operator has no effect [-Wunused-value]
+   20 |         condval = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                           ^~~~~~~~~~~~~
+3 warnings generated.
+ids [0, 0, 13, 15, 0]
+2026-10-05 15:04:53  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `gather_impl` with `out_idx=[]`
+2026-10-05 15:04:56  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `gather_impl`
+gather_err 0.0
+2026-10-05 15:04:56  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `scatter_impl` with `out_idx=[]`
+2026-10-05 15:04:57  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `scatter_impl`
+scatter_err 0.0
+Traceback (most recent call last):
+  File "/Users/pengweiye/Documents/codes/system-one/release/runs/1005-p213-ascend-cpu-probe/rp_lro.py", line 23, in <module>
+    torch.autograd.grad(rows[ids].sum(0).pow(2).sum(), r2)[0]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/torch/autograd/__init__.py", line 594, in grad
+    result = _engine_run_backward(
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/torch/autograd/graph.py", line 1072, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn

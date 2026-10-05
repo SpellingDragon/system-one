@@ -1,0 +1,9 @@
+2026-10-05 14:46:10  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `rope_impl` with `out_idx=[]`
+2026-10-05 14:46:12  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `rope_impl`
+Traceback (most recent call last):
+  File "/Users/pengweiye/Documents/codes/system-one/release/runs/1005-p213-ascend-cpu-probe/rp_rope.py", line 21, in <module>
+    rope_asc._eager(b, cos, sin, (0, 1), 1)
+  File "/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/rope_asc.py", line 212, in _eager
+    qkv[:, slot, :, :half] = (x1 * c - x2 * s).to(qkv.dtype)
+                              ~~~^~~
+RuntimeError: The size of tensor a (3) must match the size of tensor b (4) at non-singleton dimension 2

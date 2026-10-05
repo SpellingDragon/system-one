@@ -1,0 +1,6 @@
+ids [0, 0, 13, 15, 0]
+gather_err 0.0
+scatter_err 0.0
+autograd_err 0.0
+entry_dtype torch.float16 0.0004343986511230469
+nc 2 blk {} keys ['cpu|gather[cpu]|d8', 'cpu|scatter_add[cpu]|d8']

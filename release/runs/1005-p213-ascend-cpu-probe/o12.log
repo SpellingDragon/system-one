@@ -1,0 +1,36 @@
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpkhgzifx9.cpp:19:59: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                           ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpkhgzifx9.cpp:19:74: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                          ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpkhgzifx9.cpp:19:89: warning: left operand of comma operator has no effect [-Wunused-value]
+   19 |         *(float4*)(Cs + ((i * 16) + (j * 4))) = ((float4)(broadcast_var, broadcast_var, broadcast_var, broadcast_var));
+      |                                                                                         ^~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpkhgzifx9.cpp:28:29: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                             ^~~~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpkhgzifx9.cpp:28:46: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                                              ^~~~~~~~~~~~~~~
+/var/folders/6x/nhts7g654qd9_91w1c6m2zym0000gn/T/tmpkhgzifx9.cpp:28:63: warning: left operand of comma operator has no effect [-Wunused-value]
+   28 |         condval = ((float4)(broadcast_var_1, broadcast_var_1, broadcast_var_1, broadcast_var_1));
+      |                                                               ^~~~~~~~~~~~~~~
+6 warnings generated.
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+  File "/Users/pengweiye/Documents/codes/system-one/release/ascend/kernels/gemm_asc.py", line 186, in run
+    kernel(A, W, zero, C, **kwargs)
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/jit/__init__.py", line 546, in __call__
+    kernel, call_form_key = self._call_form_cache.lookup(args, kwargs)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/jit/__init__.py", line 80, in lookup
+    if self._matches_last(args, kwargs):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pengweiye/Documents/codes/system-one/release/.venv/lib/python3.12/site-packages/tilelang/jit/__init__.py", line 70, in _matches_last
+    return args == self.last_args and kwargs == self.last_kwargs
+           ^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: The size of tensor a (33) must match the size of tensor b (8) at non-singleton dimension 0
+2026-10-05 14:21:09  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:137): TileLang begins to compile kernel `gemm_impl` with `out_idx=None`
+2026-10-05 14:21:12  [TileLang:tilelang.jit.kernel:INFO] (kernel.py:145): TileLang completes to compile kernel `gemm_impl`
+M 8 ok True err 12.015948295593262

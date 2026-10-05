@@ -1,0 +1,48 @@
+—— 版本 pin 清单（device=910b, npu_arch=dav-2201, prefix=/Users/pengweiye/Ascend）——
+  Python            >= 3.10
+  CANN toolkit      = 9.2.0
+  PyTorch           = 2.5.1
+  torch_npu         = 2.5.1.post0   （须与 torch/CANN 三元组对齐）
+  TileLang          = v0.1.15   （源码构建，强制 -DUSE_ASCEND=ON）
+  TileKernels       = main    （仅参照；with_tilekernels=0）
+  环境变量落盘      -> /Users/pengweiye/Documents/codes/system-one/release/ascend/ascend.env
+  安装序: 体检 -> set_env -> CANN -> env 落盘 -> torch -> torch_npu -> TileLang -> 参照件 -> 自检
+[setup] 空跑模式（--dry-run）：以下所有步骤只打印，不产生任何副作用
+[setup] 步骤 1/9：平台体检
+  读取 uname -s/-m = Darwin/arm64
+  （真装时此处会拦截非 Linux / 非 x86_64|aarch64 / Python < 3.10）
+  需自查磁盘可用 >= 30GiB（CANN toolkit + kernels + 源码构建产物）
+[setup] 步骤 2/9：复用已有 CANN set_env.sh（若存在）
+  DRY-RUN 将检查并 source /Users/pengweiye/Ascend/ascend-toolkit/set_env.sh（存在则复用，避免重复装 CANN）
+[setup] 步骤 3/9：CANN toolkit + kernels (9.2.0, arch=arm64)
+  DRY-RUN 将执行: mkdir -p /Users/pengweiye/Ascend/pkg
+  DRY-RUN 将执行: curl -fL -o /Users/pengweiye/Ascend/pkg/toolkit.run 'https://ascend-repo.obs.cn-east-2.myhuaweicloud.com/9.2.0/Ascend-cann-toolkit_9.2.0_linux-x86_64.run'
+  DRY-RUN 将执行: chmod +x /Users/pengweiye/Ascend/pkg/toolkit.run
+  DRY-RUN 将执行: /Users/pengweiye/Ascend/pkg/toolkit.run --install --install-path=/Users/pengweiye/Ascend
+  DRY-RUN 将执行: curl -fL -o /Users/pengweiye/Ascend/pkg/kernels.run 'https://ascend-repo.obs.cn-east-2.myhuaweicloud.com/9.2.0/Ascend-cann-kernels-910b.run'
+  DRY-RUN 将执行: chmod +x /Users/pengweiye/Ascend/pkg/kernels.run && /Users/pengweiye/Ascend/pkg/kernels.run --install --install-path=/Users/pengweiye/Ascend
+[setup] 步骤 4/9：环境变量落盘 /Users/pengweiye/Documents/codes/system-one/release/ascend/ascend.env
+  DRY-RUN 将写入 /Users/pengweiye/Documents/codes/system-one/release/ascend/ascend.env，内容五行：
+    export ASCEND_HOME_PATH=/Users/pengweiye/Ascend/ascend-toolkit/latest
+    export ASCEND_OPP_PATH=$ASCEND_HOME_PATH/opp
+    export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$LD_LIBRARY_PATH
+    export PATH=$ASCEND_HOME_PATH/bin:$PATH
+    export ASCEND_NPU_ARCH=dav-2201   # bisheng --npu-arch（tilelang 默认 dav-3510）
+[setup] 步骤 5/9：PyTorch 2.5.1（先于 torch_npu）
+  DRY-RUN 将执行: pip install --no-input 'torch==2.5.1'
+[setup] 步骤 6/9：torch_npu 2.5.1.post0（必须在 torch 之后）
+  DRY-RUN 将执行: pip install --no-input 'torch_npu==2.5.1.post0'
+  DRY-RUN 将执行: python -c 'import torch, torch_npu; print("torch", torch.__version__, "npu_available", torch.npu.is_available())'
+[setup] 步骤 7/9：TileLang v0.1.15 —— 源码构建，开关写死 USE_ASCEND=ON
+  DRY-RUN 将执行: mkdir -p /Users/pengweiye/Ascend/src
+  DRY-RUN 将执行: git clone --depth 1 --branch v0.1.15 https://github.com/tile-ai/tilelang.git /Users/pengweiye/Ascend/src/tilelang
+  DRY-RUN 将执行: cmake -S /Users/pengweiye/Ascend/src/tilelang -B /Users/pengweiye/Ascend/src/tilelang/build -DUSE_ASCEND=ON -DCMAKE_BUILD_TYPE=Release
+  DRY-RUN 将执行: cmake --build /Users/pengweiye/Ascend/src/tilelang/build -j$(nproc)
+  DRY-RUN 将执行: pip install --no-input -e /Users/pengweiye/Ascend/src/tilelang --no-build-isolation
+  DRY-RUN 将执行: python -c 'import tilelang, tilelang.ascend.language as T; print("tilelang", tilelang.__version__)'
+  提示：若后续 selfcheck 仍报 ascend_copy is not registered，说明装的是轮子而非本步源码构建
+[setup] 步骤 8/9：TileKernels 参照件（WITH_TILEKERNELS=0）
+  跳过：本域内核不 import 外部件；参照件仅供人工对读（需要时加 --with-tilekernels）
+[setup] 步骤 9/9：环境自检（C1 探针）
+  DRY-RUN 将执行: python /Users/pengweiye/Documents/codes/system-one/release/ascend/selfcheck.py
+[setup] 流程结束（dry-run 表示清单已核对；真装请去掉 --dry-run 并加 --yes）

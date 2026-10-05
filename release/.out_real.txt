@@ -1,0 +1,237 @@
+2026-10-05 14:18:10,291 | INFO    | modelscope_hub.download | Downloading 14 files from Qwen/Qwen3.5-0.8B@master
+Downloading:   0%|          | 0/14 [00:00<?, ?file/s]Downloading: 100%|██████████| 14/14 [00:01<00:00,  9.38file/s]Downloading: 100%|██████████| 14/14 [00:01<00:00,  9.37file/s]
+Loading weights:   0%|          | 0/473 [00:00<?, ?it/s]Loading weights:   0%|          | 1/473 [00:02<21:42,  2.76s/it]Loading weights: 100%|██████████| 473/473 [00:02<00:00, 170.20it/s]
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+[transformers] `chunk_gated_delta_rule` is falling back to its reference PyTorch implementation because `flash-linear-attention` is not installed. This is correct but much slower; install `flash-linear-attention` for the optimized kernel.
+/Users/pengweiye/Documents/codes/system-one/release/.probe_p201_real.py:75: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /Users/runner/work/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:821.)
+  return {"width": width, "lengths": lengths, "max_abs_diff": float(d.max()),
+{
+  "torch": "2.14.1",
+  "transformers": "5.18.0",
+  "load_seconds": 8.7,
+  "peak_rss_mb_at_load": 2053.8,
+  "model_param_bytes_mb": 1706.0,
+  "seam": {
+    "backbone_name": "Qwen/Qwen3.5-0.8B",
+    "backbone_dtype": "float16",
+    "backbone_device": "cpu",
+    "backbone_hidden_size": 1024,
+    "render_version": "dmlaya_render_v1",
+    "backbone_source": "modelscope",
+    "backbone_repo": "Qwen/Qwen3.5-0.8B",
+    "backbone_revision": "master",
+    "backbone_snapshot": "/Users/pengweiye/Documents/codes/system-one/release/bench/ms_models/models/Qwen--Qwen3.5-0.8B/snapshots/master",
+    "backbone_download_bytes": 0,
+    "backbone_download_seconds": 2.7,
+    "backbone_endpoint": "https://www.modelscope.cn",
+    "backbone_files": 14,
+    "seam_letter_ids": [
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57
+    ],
+    "seam_head_vocab": 248320,
+    "seam_hidden_size": 1024,
+    "seam_prompt_sha256_16": "a1891aca6c002e48",
+    "seam_prompt_tokens": 80,
+    "seam_think_off_suffix": "<think>\n\n</think>\n\n",
+    "seam_mm_token_ids": {
+      "image_token_id": 248056,
+      "video_token_id": 248057,
+      "vision_start_token_id": 248053,
+      "vision_end_token_id": 248054
+    }
+  },
+  "hidden_size": 1024,
+  "letter_ids": [
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57
+  ],
+  "letter_rows_shape": [
+    26,
+    1024
+  ],
+  "full_attention_layers": [
+    3,
+    7,
+    11,
+    15,
+    19,
+    23
+  ],
+  "layout": [
+    {
+      "layer": 3,
+      "ok": true,
+      "note": "layer3 out=[8, 1024] max_abs=4.470e-07 mean_ref=7.233e-02 rel=6.180e-06 tol=1.0e-03 OK",
+      "row_match": true,
+      "keys": [
+        "gate.weight",
+        "k_norm.weight",
+        "o_proj.weight",
+        "q_norm.weight",
+        "qkv.weight"
+      ],
+      "layout": {
+        "heads": 8,
+        "kv_heads": 2,
+        "head_dim": 256,
+        "rotary_dim": 64,
+        "group": 4
+      },
+      "mismatch": []
+    },
+    {
+      "layer": 7,
+      "ok": true,
+      "note": "layer7 out=[8, 1024] max_abs=1.788e-07 mean_ref=5.042e-02 rel=3.546e-06 tol=1.0e-03 OK",
+      "row_match": true,
+      "keys": [
+        "gate.weight",
+        "k_norm.weight",
+        "o_proj.weight",
+        "q_norm.weight",
+        "qkv.weight"
+      ],
+      "layout": {
+        "heads": 8,
+        "kv_heads": 2,
+        "head_dim": 256,
+        "rotary_dim": 64,
+        "group": 4
+      },
+      "mismatch": []
+    }
+  ],
+  "swap_brain": [
+    {
+      "qid": "q1",
+      "tokens": 80,
+      "order": [
+        "a",
+        "b",
+        "c"
+      ],
+      "letter": "A",
+      "code": "a",
+      "probs": [
+        0.5035,
+        0.2224,
+        0.2741
+      ],
+      "temperatures": [
+        1.0
+      ]
+    },
+    {
+      "qid": "q2",
+      "tokens": 80,
+      "order": [
+        "a",
+        "b",
+        "c"
+      ],
+      "letter": "A",
+      "code": "a",
+      "probs": [
+        0.7134,
+        0.263,
+        0.0236
+      ],
+      "temperatures": [
+        1.0
+      ]
+    },
+    {
+      "qid": "q3",
+      "tokens": 81,
+      "order": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "letter": "A",
+      "code": "a",
+      "probs": [
+        0.8923,
+        0.0326,
+        0.0115,
+        0.0635
+      ],
+      "temperatures": [
+        1.0
+      ]
+    }
+  ],
+  "causal_invariance": {
+    "width": 81,
+    "lengths": [
+      80,
+      80,
+      81
+    ],
+    "max_abs_diff": 3.814697265625e-06,
+    "mean_abs_score": 24.430273056030273,
+    "argmax_pad": [
+      "A",
+      "A",
+      "A"
+    ],
+    "argmax_single": [
+      "A",
+      "A",
+      "A"
+    ],
+    "same_argmax": true
+  },
+  "peak_rss_mb_end": 2053.8
+}

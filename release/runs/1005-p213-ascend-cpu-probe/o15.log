@@ -1,0 +1,1 @@
+RELU+BIAS err 2.86102294921875e-06 badmask [False, False, False, False, False, False, False, False] colmask [False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False]
