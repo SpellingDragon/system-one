@@ -24,23 +24,25 @@ TOL = 2e-2
 
 
 @pytest.fixture(autouse=True)
+def _isolate_global_state():
+    """全局状态复位：探测结论、编译缓存、阻塞账、计数、env 偏好都是进程级量。
 
-@pytest.fixture(autouse=True)
-def _clean_compile_cache():
-    """缓存行为用例必须从干净态起步（R16 教训的 CI 实锤：本机用例顺序侥幸干净≠任何环境干净）。
-
-    get_compiled 的编译缓存/失败记忆是模块级单例；不隔离则别组用例先行写入 key 时，
-    "per-key 计数""失败不重试"等断言在收集顺序变化后（CI 装包版本差异即可触发）必炸。
+    R16 的 CI 实锤：单例账不隔离，则"per-key 计数""失败不重试"随收集顺序变化必炸，
+    本机顺序侥幸干净不等于任何环境干净。
     """
     backends.reset()
     yield
     backends.reset()
 
-def _isolate_global_state():
-    """全局状态复位：探测结论、编译缓存、阻塞账、计数、env 偏好都是进程级量。"""
-    backends.reset()
-    yield
-    backends.reset()
+
+@pytest.fixture(autouse=True)
+def _deterministic_availability(monkeypatch):
+    """缓存语义与设备探测无关：强制"tilelang 可用"，令计数类用例跨环境行为一致。
+
+    CI(ubuntu) 无内核工具链时 tilelang_available() 探测 False → builder 根本不执行、
+    计数恒零 → 断言被连坐误杀（本机 True 恰绿）。探测分支本身由文件头 skip/env 用例覆盖。
+    """
+    monkeypatch.setattr(backends, "tilelang_available", lambda: True)
 
 
 def _maxerr(a: torch.Tensor, b: torch.Tensor) -> float:
