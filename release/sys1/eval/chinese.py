@@ -30,8 +30,12 @@
        derived 路——零流量（不下载，按已 pin 的子集副本现推），assembler 指回本模块，于是
        `python -m sys1.eval.registry fetch --zh`（含在 `--all` 里）一键重装配。底账（样本数 /
        qtype_counts / gold_coverage / assembled_bytes / sha256 / envelope_ready）由 registry
-       那套唯一的记账代码写，本模块不自记一份，免得两处底账互相改写。转写口径变了就升
+       registry 那套唯一的记账代码写，本模块不自记一份，免得两处底账互相改写。转写口径变了就升
        `ZH_DECISION_VERSION`，并把版本号写进派生 pin 的 note——报告里的中文分据此能追到规则版本。
+       D3 再补一路**训练档**：`clue-train-subset → clue-train-decision`（registry 的 train 轴，
+       经 `load_train_records()` 消费）。折法一条不改，只把档位另登一格——同一条规则分别喂
+       train 与 validation，训测隔离才成立；CMMLU 经探查上游确无 train 分割（取证见
+       `registry.ZH_TRAIN_PROBE`），本模块不拿 dev 档改名凑数。
     ④ G3 骨架：`build_g3_md()` 按集（cmmlu / clue）各出一块表，指标行取 DML / laya / Δ 三列，
        laya 那一格复用 p2-04 的亲跑产物口径（`baselines/table.py::load_row` 读
        `<root>/laya/<split>.row.json`）；读到就填实测值并挂 run-id 与采样参数，读不到一律
@@ -96,6 +100,17 @@ NOUL_CRITERIA = {"false": "不成立", "true": "成立"}
 #: 源副本集 id → 决策信封集 id（registry 里成对登记；派生集零流量，按左边那份现推）。
 SOURCE_TO_DECISION = {"cmmlu-subset": "cmmlu-decision", "clue-subset": "clue-decision"}
 DECISION_TO_SOURCE = {v: k for k, v in SOURCE_TO_DECISION.items()}
+#: 中文 **train 语料**那一格（D3）：与上面那对考卷分开设表——`--zh` 按钮、quality 轴的账都
+#: 按考卷那对走，混进同一张表会把评测面一起改了；两张表合并成 `ALL_SOURCE_TO_DECISION` 供
+#: 名字换算与转写分派用（换算是一张表，记账是两张表，各管各的）。
+TRAIN_SOURCE_TO_DECISION = {"clue-train-subset": "clue-train-decision"}
+ALL_SOURCE_TO_DECISION = {**SOURCE_TO_DECISION, **TRAIN_SOURCE_TO_DECISION}
+ALL_DECISION_TO_SOURCE = {v: k for k, v in ALL_SOURCE_TO_DECISION.items()}
+#: CLUE 系的两个档位（考卷 validation / 语料 train）：转写折法完全同一条，只是原件来自哪一档。
+CLUE_SOURCE_PIDS = ("clue-subset", "clue-train-subset")
+#: 各源副本缺件时的补救命令（把"先敲哪条"写进报错里，别让下游拿空表算出 0 分当实测）。
+FETCH_HINT = {"cmmlu-subset": "fetch --cn", "clue-subset": "fetch --cn",
+              "clue-train-subset": "fetch --zh-train"}
 #: 按集记账的通道名（`scoring.score_rows` 拿行的 task 当分账口，跨集不混算靠它）。
 ZH_CHANNEL = {"cmmlu": "zh-cmmlu", "tnews": "zh-tnews", "ocnli": "zh-ocnli"}
 
@@ -117,8 +132,10 @@ FAILURE_STATE_CHARS = 80                    # 题面摘录长度（截断展示�
 #: 配比两档里待 p2-05 侧接入的配置键（其余键 `production/sft.py` 今天就认）。
 MIX_PENDING_KEYS = ("zh_ratio", "zh_corpus")
 MIX_RATIOS = (0.30, 0.50)
-#: `zh_corpus` 还没注册（registry 的 train 轴目前只有 typed-decisions-train）；本波显式挂占位符，
-#: 不复用任何评测集凑数——占位符能被卫生闸读出来是"缺口在案"，写成 cmmlu-decision 才是假绿。
+#: `zh_corpus` 本波仍挂显式占位符：registry 的 train 轴自 D3 起已有中文语料档
+#: （`clue-train-subset`/`clue-train-decision`，2026-10-06 登记并真拉装配），但把这一格从 PENDING
+#: 切到真集属 p2-09 B1 的接入动作（配比口径由训练侧定），本模块不越权改。占位符能被卫生闸
+#: 读出来是"缺口在案"，随手写成某个评测集当语料才是假绿——不复用任何考卷凑数。
 MIX_CORPUS_PENDING = f"PENDING@{PENDING_LABEL}:zh-train"
 
 
@@ -134,10 +151,10 @@ def decision_id(source_pid: str) -> str:
     信封。这个函数只干一件事：把前者的名字翻成后者的名字。翻不出来说明这条集根本没登过记，
     当场停下来问，比硬拼一个不存在的路径让人去猜要省心得多。
     """
-    if source_pid not in SOURCE_TO_DECISION:
+    if source_pid not in ALL_SOURCE_TO_DECISION:
         raise ChineseTranscribeError(
-            f"没有为 {source_pid!r} 登记决策化去向；已登记的源副本：{sorted(SOURCE_TO_DECISION)}")
-    return SOURCE_TO_DECISION[source_pid]
+            f"没有为 {source_pid!r} 登记决策化去向；已登记的源副本：{sorted(ALL_SOURCE_TO_DECISION)}")
+    return ALL_SOURCE_TO_DECISION[source_pid]
 
 
 def source_id(decision_pid: str) -> str:
@@ -147,10 +164,10 @@ def source_id(decision_pid: str) -> str:
     那份副本誊出来的，源副本的 revision、取的是哪一档、总共几条，都记在原件那一格账上。
     名字没登记过就当场报错，绝不猜一个看着顺眼的原件。
     """
-    if decision_pid not in DECISION_TO_SOURCE:
+    if decision_pid not in ALL_DECISION_TO_SOURCE:
         raise ChineseTranscribeError(
-            f"{decision_pid!r} 不是本模块登记的中文决策集；可选：{sorted(DECISION_TO_SOURCE)}")
-    return DECISION_TO_SOURCE[decision_pid]
+            f"{decision_pid!r} 不是本模块登记的中文决策集；可选：{sorted(ALL_DECISION_TO_SOURCE)}")
+    return ALL_DECISION_TO_SOURCE[decision_pid]
 
 
 def subset_path(source_pid: str) -> Path:
@@ -169,7 +186,8 @@ def load_subset(source_pid: str) -> list[dict[str, Any]]:
     path = subset_path(source_pid)
     if not path.is_file():
         raise ChineseTranscribeError(
-            f"中文子集副本不在盘上：{path}（先跑 `python -m sys1.eval.registry fetch --cn`）")
+            f"中文子集副本不在盘上：{path}（先跑 `python -m sys1.eval.registry "
+            f"{FETCH_HINT.get(source_pid, 'fetch --cn')}`）")
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not rows:
         raise ChineseTranscribeError(f"中文子集副本是空文件：{path}")
@@ -322,9 +340,10 @@ def transcribe_subset(source_pid: str, rows: list[dict[str, Any]]) -> list[dict[
     """
     if source_pid == "cmmlu-subset":
         return [cmmlu_to_envelope(r) for r in rows]
-    if source_pid == "clue-subset":
+    if source_pid in CLUE_SOURCE_PIDS:          # validation 考卷与 train 语料共用这一条折法
         return [clue_to_envelope(r) for r in rows]
-    raise ChineseTranscribeError(f"未登记的中文源副本集 {source_pid!r}；可选：{sorted(SOURCE_TO_DECISION)}")
+    raise ChineseTranscribeError(
+        f"未登记的中文源副本集 {source_pid!r}；可选：{sorted(ALL_SOURCE_TO_DECISION)}")
 
 
 # ---------------------------------------------------------------- registry 装配钩子
@@ -359,6 +378,22 @@ def assemble_clue_decision(raw: Path) -> list[dict[str, Any]]:
     except ChineseTranscribeError as exc:
         raise registry.AssembleError(str(exc)) from exc
     return transcribe_subset("clue-subset", rows)
+
+
+def assemble_clue_train_decision(raw: Path) -> list[dict[str, Any]]:
+    """registry 装配口（clue-train-decision，D3）：读 train 档原件，交同一条折法出训练信封。
+
+    白话：和 `assemble_clue_decision` 是同一门手艺，只是题目从 train 那份副本里读。这样
+    "练的题"与"考的题"由同一条规则各写一遍，差别只在档位——若两份信封由两套规则写出来，
+    训测之间的可比性当场没了，而分数上看不出这种破口。装配失败仍报成 registry 的装配错，
+    让 fetch 把这个集记进 failed 栏，绝不静默出一半。
+    """
+    del raw
+    try:
+        rows = load_subset("clue-train-subset")
+    except ChineseTranscribeError as exc:
+        raise registry.AssembleError(str(exc)) from exc
+    return transcribe_subset("clue-train-subset", rows)
 
 
 def load_decision_records(decision_pid: str, *, limit: int = 0) -> list[dict[str, Any]]:
@@ -688,7 +723,12 @@ __all__ = [
     "TNEWS_LABEL_CODES",
     "ZH_CHANNEL",
     "ZH_DECISION_VERSION",
+    "ALL_DECISION_TO_SOURCE",
+    "ALL_SOURCE_TO_DECISION",
+    "CLUE_SOURCE_PIDS",
+    "TRAIN_SOURCE_TO_DECISION",
     "assemble_clue_decision",
+    "assemble_clue_train_decision",
     "assemble_cmmlu_decision",
     "build_g3_md",
     "build_ledger",

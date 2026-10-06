@@ -160,7 +160,7 @@ def load_axis_records(axis: str, *, data_dir: str | Path | None = None,
 
 def load_train_records(*, data_dir: str | Path | None = None,
                        limit: int = 0) -> list[dict[str, Any]]:
-    """训练数据消费口：只回 `split=='train'` 的统一信封（typed-decisions train 档）。
+    """训练数据消费口：只回 `split=='train'` 的统一信封（typed train + 中文 train 语料，D3）。
 
     白话：训练侧从这里拿题，评测侧从 quality 那个口拿题，两口各走各路——这个口只认
     train 轴上登过记的集，永远 scoop 不到考卷；每条信封都带着档位名（split 字段），
@@ -192,9 +192,15 @@ def train_ledger(manifest: dict[str, Any] | None = None) -> dict[str, Any]:
                      "bytes": int(s.get("bytes_downloaded") or s.get("bytes") or 0),
                      "qtype_counts": s.get("qtype_counts") or {},
                      "channel": s.get("endpoint") or s.get("source_url") or "-"})
+    # 中文那一格单独列出（D3）：C5 的 zh_corpus 要指着它，缺口也必须能单独读出来——
+    # 混在总数里就看不出"typed 有了、中文还欠着 CMMLU 那一档"这句实话
+    zh_rows = [r for r in rows if r["id"] in registry.ZH_TRAIN_IDS_TUPLE]
     return {"sets": rows, "samples": sum(r["samples"] for r in rows),
             "bytes": sum(r["bytes"] for r in rows),
-            "intern_probe": registry.INTERN_TRAIN_PROBE["verdict"]}
+            "zh_sets": zh_rows, "zh_samples": sum(r["samples"] for r in zh_rows),
+            "zh_bytes": sum(r["bytes"] for r in zh_rows),
+            "intern_probe": registry.INTERN_TRAIN_PROBE["verdict"],
+            "zh_probe": registry.ZH_TRAIN_PROBE["verdict"]}
 
 
 def score_axis(axis: str, preds: list[Any]) -> dict[str, Any]:
@@ -373,6 +379,12 @@ def format_report_md(result: dict[str, Any], *, manifest: dict[str, Any] | None 
         f"真实下载 {tl['bytes']:,} 字节（通道 "
         f"{'、'.join(str(r['channel']) for r in tl['sets'] if r['status'] in ('fetched', 'cached')) or '未拉'}）；"
         f"Intern-Decision train 探查：{tl['intern_probe']}",
+        f"- 中文 train 语料（D3 · C5 前置闸之二）：{len(tl['zh_sets'])} 集 / "
+        f"{tl['zh_samples']:,} 条 / 真实下载 {tl['zh_bytes']:,} 字节"
+        f"（通道 {'、'.join(str(r['channel']) for r in tl['zh_sets'] if r['status'] in ('fetched', 'cached')) or '未拉'}）"
+        f"，逐集 {[(r['id'], r['status'], r['samples']) for r in tl['zh_sets']]}——"
+        f"条数按集累计，训练口只吃决策信封（原件档 envelope_ready=False，不入分母）；"
+        f"CMMLU train 探查：{tl['zh_probe']}",
         f"- 执行后端：`{result.get('backend')}`；npu 为云端占位，接入前必被拒绝（见 p2-13）",
         "", "## 六轴表", "", "```", table, "```", "",
         "## 一致轴裁定（B3 · P1 悬空轴教训回写）", "",
@@ -430,6 +442,12 @@ def write_run_record(result: dict[str, Any], *, prefix: str = "p2-03",
             f"qtype 逐集 {[(r['id'], r['qtype_counts']) for r in tl['sets'] if r['samples']]}；"
             f"Intern-Decision train 探查结论：{tl['intern_probe']}"
             f"（取证见 registry.INTERN_TRAIN_PROBE）——查无即如实记，不硬造分区凑数",
+            f"中文 train 语料底账（D3，C5 前置闸之二）："
+            f"{[(r['id'], r['status'], r['samples']) for r in tl['zh_sets']]} / "
+            f"真实下载 {tl['zh_bytes']:,} 字节；中文档 id 与考卷 id 逐条互斥"
+            f"（档位段 train vs validation/test 写在 id 里，断言见 tests/test_registry.py "
+            f"-k split_isolation）；语料缺口上报：{tl['zh_probe']}"
+            f"（取证见 registry.ZH_TRAIN_PROBE）——查无即如实记，不拿 dev 档改名凑 train",
         ])
     na = [a for a, v in (result.get("axes") or {}).items() if v.get("status") == "n/a"]
     run.log_metrics(0, axes_requested=len(result.get("axes") or {}), axes_na=len(na),
