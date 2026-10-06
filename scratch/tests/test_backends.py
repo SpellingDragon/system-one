@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import sys
 import warnings
-import pytest
 
 import pytest
 import torch
@@ -35,10 +34,11 @@ def _isolate_global_state():
     backends.reset()
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture()
 def _deterministic_availability(monkeypatch):
     """缓存语义与设备探测无关：强制"tilelang 可用"，令计数类用例跨环境行为一致。
 
+    非 autouse：仅三枚缓存记账用例点名借用（探测/env 分支用例需要真实 False，全局强推会连坐）。
     CI(ubuntu) 无内核工具链时 tilelang_available() 探测 False → builder 根本不执行、
     计数恒零 → 断言被连坐误杀（本机 True 恰绿）。探测分支本身由文件头 skip/env 用例覆盖。
     """
@@ -105,7 +105,7 @@ def test_env_force_tilelang_still_needs_real_probe():
 # ---------------------------------------------------------------- 编译缓存与计数
 
 
-def test_get_compiled_builds_once_and_caches():
+def test_get_compiled_builds_once_and_caches(_deterministic_availability):
     """同一 key 只构建一次，第二次直接命中缓存且不动计数。"""
     calls = []
 
@@ -120,7 +120,7 @@ def test_get_compiled_builds_once_and_caches():
     assert backends.compiled_keys() == ("k1",)
 
 
-def test_get_compiled_counts_per_key():
+def test_get_compiled_counts_per_key(_deterministic_availability):
     """不同 key 各自编译，计数如实增长。"""
     backends.get_compiled("a", lambda: 1)
     backends.get_compiled("b", lambda: 2)
@@ -152,7 +152,7 @@ def test_compile_failure_warns_records_and_returns_none():
     assert "MSL 不支持" in blockers["gemm|n=8|k=8"]
 
 
-def test_failed_key_is_not_retried_and_warns_only_once():
+def test_failed_key_is_not_retried_and_warns_only_once(_deterministic_availability):
     """失败过的 key 不再重试、不再重复告警（否则每层每步都要刷一条警告）。"""
     calls = []
 
