@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import torch
 
-from sys1.kernels import gemm_bwd_dw_mps, backends
+from sys1.kernels import backends, gemm_bwd_dw_mps
 
 
 def backward(dY: torch.Tensor, A: torch.Tensor, *, out_dtype: torch.dtype = torch.float16) -> torch.Tensor:

@@ -1,4 +1,0 @@
-dmlaya
-learning
-production
-serving

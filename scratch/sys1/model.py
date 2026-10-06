@@ -353,7 +353,7 @@ class Decoder(nn.Module):
         try:
             ops = None
             if kernel_backend == "tilelang":
-                from sys1.kernels import autograd as ops   # 可微内核门面；单向依赖，不成环
+                from sys1.kernels import autograd as ops  # 可微内核门面；单向依赖，不成环
             self.tok_emb = nn.Embedding(config.vocab, config.d)
             self.blocks = nn.ModuleList(DecoderBlock(config, ops=ops) for _ in range(config.L))
             self.final_norm = nn.LayerNorm(config.d, eps=config.norm_eps)

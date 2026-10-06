@@ -27,7 +27,9 @@
 ② venv：所有 python/pytest 命令的绝对路径
 ③ 必读四件套：proposal/design/tasks/spec（+项目注释规范章节）
 ④ 已就绪资产情报：前序域的真实产物路径与可 import 的接口签名——免 agent 重探
-⑤ 写入白名单：精确到文件/目录；明令"不动他域文件、禁 git commit/checkout"
+⑤ 写入白名单：精确到文件/目录；明令"不动他域文件、禁 git commit/checkout"；**过程件归置条款必写**——一次性探针/补丁/日志只准落
+   约定隔离区（如 bench/process/<域>/，gitignored），禁止散落工作树根（波次乱源）；
+   可复跑脚本入 examples/，引证凭据随对应 run 归档 process_artifacts/
 ⑥ 验证纪律：每条孙任务验证命令 exit 0 才勾 [x]；训练类 = run-id+指标存在；
    汇报须附逐条验证输出摘要（passed 数/run-id/关键数字）——供编排者核查的原始凭据
 ⑦ 质量门自检：check_comments/ruff 本域必须绿

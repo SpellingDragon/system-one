@@ -51,3 +51,17 @@ python -m production.sft --config production/configs/scaling_06b.yaml --run-pref
 ```
 
 注意：P2 计划文档中的 `sys1/...`、`production/...` 相对路径一律以本目录为基准。
+
+## 目录纪律（2026-10-06 规整所定，防再乱）
+
+| 位置 | 放什么 | 不放什么 |
+|---|---|---|
+| `sys1/` | P1 冻结件同步副本（import 底座） | P2 新码 |
+| `production/` `ascend/` `serving/` | P2 各域交付码 | 任何一次性脚本 |
+| `tests/` | 各域验收测试（门） | — |
+| `examples/` | **可复跑脚本**（如 a2_needle_curve.py，云端复跑同款） | — |
+| `runs/` | 四件套证据档案；过程凭据入 `<run>/process_artifacts/` 随 run 归档 | — |
+| `bench/`（gitignored） | 数据/缓存/**全部过程件**（`.probe_*/.patch_*/.out_*` 一律入 `bench/process/<域>/`） | — |
+| **仓库根（release/）** | 只允许上表目录 + pyproject/README | **禁止任何 `.probe_/.patch_/.out_/.smoke_` 落根**（写后即入 bench） |
+
+纪律执行归编排者：波次收尾巡检 release 根，散件即归档或清除；agent 派发包含此条。
