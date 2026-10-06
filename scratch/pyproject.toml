@@ -1,6 +1,6 @@
 [project]
 name = "sys1"
-description = "System-One: a calibrated on-device System-1 decision engine built on TileLang (two-track course project: 0->1 from scratch, master beat-baseline)"
+description = "System-One Study: a calibrated on-device System-1 decision engine built on TileLang (two-track course project: 0->1 from scratch, master beat-baseline)"
 version = "0.0.1"
 requires-python = ">=3.10"
 license = { text = "MIT" }

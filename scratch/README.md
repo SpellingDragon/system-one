@@ -1,4 +1,4 @@
-# System-One · 第一阶段（scratch，P1 冻结）
+# System-One Study · 第一幕：从零学会造（scratch，P1 冻结）
 
 基于 **TileLang** 的类 laya 非自回归 System-1 决策引擎课程项目，分两部分（同一仓库、同一架构：因果 decoder + 选项字母读出 + 类型温度）：
 

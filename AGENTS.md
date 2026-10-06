@@ -1,4 +1,4 @@
-# AGENTS.md（System-One）— 本仓的四目录布局与 agent 资产使用说明
+# AGENTS.md（System-One Study）— 本仓的四目录布局与 agent 资产使用说明
 
 > 面向在此仓库工作的 AI coding assistant（与人类协作者）。改代码前先读本文。
 

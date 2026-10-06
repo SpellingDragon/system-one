@@ -1,4 +1,4 @@
-# Teacher P2 · System-One 正式版（production-full）—— 昇腾 910B 云端执行版
+# Teacher P2 · System-One Study 正式版（production-full）—— 昇腾 910B 云端执行版
 
 > 多级变更：一级司编排（本件），spec 下沉至 12+1 个二级子变更（`changes/p2-01..p2-13`）。
 > 2026-10-05 v3 重写：执行环境大转向（Mac MPS → 云端昇腾 910B ¥20/h）+ StartLux 版权边界 + 双阶段并行编排。

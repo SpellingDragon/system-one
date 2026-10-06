@@ -12,7 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install ruff pytest
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu  # CPU 轮小且够门；避免拉 CUDA 大包
+      - run: pip install -e "./scratch[dev]"
       - run: bash scratch/tools/ci.sh
 
   mac-gates:                     # Apple Silicon 轻量档（编译+注释门；MPS 用例见 device 矩阵）

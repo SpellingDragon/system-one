@@ -25,3 +25,4 @@
 > 收尾由 sys1.runs 校验：没有结论行就不许 finish()。
 结论：p2-01 六项孙任务落地：① 真下载 1,769,980,952 字节 / 311.3s（https://www.modelscope.cn，14 文件，空目录首拉）；② 真载 CPU+fp16 峰值常驻内存 2027.6MB（载重后）/2027.6MB（整轮）；③ 四校验全过——字母 A–Z 单 token 32..57（未触发降 0.6B 预案）、letter_rows [26, 1024]、思考关闭快照 80 格 / sha a1891aca6c002e48、多模态编号与字母号无交集；④ 布局对拍 2 层 rel 最大 6.2e-06 ≤1e-3；⑤ 换脑 3 问份额和为 1、右填充因果不变 max_abs=3.815e-06 且 argmax 一致；⑥ MPS 完整前向峰值按派单延后（本机 MPS 被一阶段长跑占用），本 run 只交 fp16→mps 小张量冒烟，CPU 口径峰值已入笔记。
 结论：更正（补跑，零新下载）：布局层测试文件曾因写入工具延迟落盘被覆盖为占位，本 run 首跑的"全量 28 passed"因此少计了 tests/test_backbone_layout.py；该文件已重写并复跑 16 passed（真权重换算与一层前向对拍在内），全量真数 44 passed + 1 skipped（MPS 变体按占用状态 skip）。四校验、下载字节量/耗时、峰值内存各行数值不受影响。
+补录（编排者，2026-10-06 规整）：bench/p201_dl_fresh 快照已按"可删皆删"授权清除（数字以本 notes 下载实测行为准）；原始下载日志迁存于本 run 的 process_artifacts/out_p201_redownload.txt；重建路径 = config.backbone_repo+revision 经 ModelScope snapshot_download。
