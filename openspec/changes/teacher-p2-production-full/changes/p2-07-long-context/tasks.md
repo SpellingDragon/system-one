@@ -5,7 +5,7 @@
 ### 工作项 A needle 评测
 
 - [x] A1 needle 生成器：多针、档位 8K/32K/128K/256K、seed 固定入 registry —— 验证：`python -m pytest tests/test_longctx.py -k needle -q`
-- [ ] A2 实测召回曲线 run：8K/32K/128K 三档 + 峰值内存 + 设备标注（Mac 上限如实） —— 验证：runs/ 含 longctx run-id，报告三档召回
+- [x] A2 实测召回曲线 run：8K/32K/128K 三档 + 峰值内存 + 设备标注（Mac 上限如实） —— 验证：runs/ 含 longctx run-id，报告三档召回
 
 ### 工作项 B 前缀复用
 
