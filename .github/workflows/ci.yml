@@ -14,7 +14,6 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu  # CPU 轮小且够门；避免拉 CUDA 大包
       - run: pip install -e "./scratch[dev]"
-      - run: python -m sys1.data.pretrain_corpus --config tiny --out scratch/runs/corpus_tiny   # 2s 级真装配：e2e/spec 用例的数据面（tokenizer 已入库）
       - run: bash scratch/tools/ci.sh
 
   mac-gates:                     # Apple Silicon 轻量档（编译+注释门；MPS 用例见 device 矩阵）
