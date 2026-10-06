@@ -141,7 +141,7 @@ def test_get_compiled_skips_builder_when_unavailable():
 # ---------------------------------------------------------------- 编译失败回退（spec 场景）
 
 
-def test_compile_failure_warns_records_and_returns_none():
+def test_compile_failure_warns_records_and_returns_none(_deterministic_availability):
     """builder 抛异常 → 一次显式 RuntimeWarning + 登记阻塞点 + 返回 None（异常不外泄给业务）。"""
     with pytest.warns(RuntimeWarning, match="回退") as caught:
         got = backends.get_compiled("gemm|n=8|k=8", _boom(RuntimeError("MSL 不支持")))
