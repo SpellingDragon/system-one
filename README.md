@@ -49,5 +49,3 @@ cd ../release && .venv/bin/python -m pytest tests -q -m "not integration"   # �
 1. 第一幕 `learning/` 轨禁第三方权重；第二幕产出基座必须 Apache 2.0（StartLux 仅限蒸馏/verifier/对照评测）；
 2. 一切跑分走 `sys1/eval/` 同 harness，双基线亲跑不引用卡面；
 3. `sys1/decision/` 契约零改动——程序即宪法，三层守护。
-
-> 原名 deep-multimodal-laya（DML）；"System-One" 三关：Kahneman 的快思考、从 0 到 1、力争第一。包名 `sys1`。
