@@ -104,7 +104,7 @@ flowchart TD
 ### D6 载重与三栈的 910B 落地规格（2026-10-05 改：Mac→昇腾，全自研栈主路线）
 
 - backbone：**Qwen3.5-0.8B**（gate 主力；原生视觉塔+262K）；fp16/bf16（910B 探针定）。**版权（D11）：训练基座=Qwen3.5（Apache 2.0）；StartLux 权重仅限教师打分/RL verifier/对照评测**。
-- **训练栈主路线=全 TileLang 自研**（用户决策，D13）：linear/rope/attn/GDN/LN/读出七类算子的昇腾方言件（p2-13，参考 TileKernels `modeling` 的 autograd 封装范式与 `transform` RoPE）；LoRA r16/α32 在算子层注入；GC 按显存账启用。**回退在册**：C1 探针若 910B dialect 不可用/移植受阻→ torch_npu+transformers+peft 底座（同超参，损失算子故事、保三栈实验），决策与原因如实入 run notes。
+- **训练栈=渐进替换制**（2026-10-07 用户重定向：TileLang 算子优化为项目主线、探索脱离 CUDA 生态）：底座 torch_npu（C1 已验，978 tok/s）保证三栈 vehicle 随时可跑；p2-13 路线B（910B 头桩移植）逐件产出算子、成熟一个换一个，路线A（950 实例）作官方后端参照系。全有全无的"底座二选一"叙事废止。
 - 本地开发模式：方言件 target=cpu 语义对拍（Mac 无 NPU）；编译与实测在云端短租完成——本地写码、云端验靶。
 - 教师（三教师分工·终态，D9）：文本 = **StartLux-4B**（本地，决策专精、读出原生同构、"蒸馏 4B 击败 0.8B 家族"叙事）/ 视觉 = **GLM-5.3-Flash API 离线伪标**（320B、红线合规、零本地内存）/ 备选 = Qwen3.5-4B；分布 parquet 缓存；OPD 在线同驻账 26GB/29GB（仅文本教师本地驻留）；生成式兜底走 `<answer>` 协议短答案。
 - OPD：学生 top-k=8 自采样 → 教师同选项逐 token 分布 → reverse-KL（可切 JSD）；混 ground-truth 默认 0.2。

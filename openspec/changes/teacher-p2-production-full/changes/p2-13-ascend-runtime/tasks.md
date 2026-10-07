@@ -1,9 +1,9 @@
-# p2-13 · tasks（孙任务）
+# p2-13 · tasks（910B 移植主线，2026-10-07 重排）
 
-- [x] R1 编写 `ascend/env_setup.sh` 与 `selfcheck.py`（版本 pin：CANN/torch_npu/tilelang/TileKernels；本地可跑 dry-run） —— 验证：`bash ascend/env_setup.sh --dry-run` exit 0
-- [x] R2 【本地】七类算子方言件 target=cpu 语义对拍全绿（接口与 `sys1/kernels/` 同名） —— 验证：`python -m pytest tests/test_ascend_gradcheck.py -k cpu -q` exit 0
-- [x] R3 【C1 探针·云端】910B 上跑通 tilelang 方言编译+TileKernels 昂腾后端+torch_npu 前向参照，产吞吐初值与底座决策 —— 验证：run notes 含探针结论行（方言可用性/数值/吞吐三行）
-- [ ] R4【C1 判决回写：方言不可用 → 本项语义改为 torch_npu 底座通路验证（自研件迁移暂停，代码与对拍资产保留待 950/CANN 版本线）】R4 【C2·云端】七算子 NPU 编译+梯度对拍绿（fp32 互锁） —— 验证：`pytest tests/test_ascend_gradcheck.py -q`（NPU 环境下）exit 0
-- [ ] R5 【C2·云端】自研栈 vs torch_npu 基准表（单算子+SFT 步级） —— 验证：run notes 含基准表（tok/s 两列）
-- [ ] R6 实现 `ascend/cost_ledger.py` 分段记账并接入 C1–C4 各段 —— 验证：ledger 表含各段时长/费用行
-- [ ] R7 【C4】tiny 冒烟全链定档 + gate 成本报价（¥600 熔断检查） —— 验证：run notes 含报价行与熔断判定
+- [x] R3 【C1 已决】910B4 实勘：方言 950-only（三重证据）、torch_npu 978 tok/s、s3fs 运维风险 —— 验证：run de15
+- [ ] B1 **头桩 MVP 实验**（首孙任务·风险前置）：fork 主仓 ascend 模板层建 `sys1-910b` 分支，以空桩/910B 等价物替换 c_api+simt_api 六处 include，AIC-only vecadd→gemm 两级用例在 910B 实编实跑 —— 验证：远端 run notes 含"910B 头桩编译通过/失败"结论行与 bisheng 命令原文
+- [ ] B2 gemm/dW/letter_readout/add_ln 四件 AIC 移植 + fp32 对拍（远端 NPU 实跑） —— 验证：gradcheck NPU 档 exit 0
+- [ ] B3 rope/attn_sw/GDN vector 通路移植（或同栈混合如实标注） —— 验证：同上
+- [ ] A1 950/A3 实例可得性调查（ModelArts 镜像面/专属池申请路径）+ 可得则同批双跑 —— 验证：调查结论行入 run notes
+- [ ] R6 cost_ledger 接入 B/A 各段（沿用 D12 熔断） —— 验证：ledger 行齐
+- [ ] R7 C4 tiny 冒烟（torch_npu 底座）+ gate 精确报价 —— 验证：报价行 + 熔断判定

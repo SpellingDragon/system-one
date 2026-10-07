@@ -1,17 +1,15 @@
-# p2-13 · 昇腾运行时与自研算子栈（ascend-runtime）
+# p2-13 · TileLang 昇腾算子优化（主线域，2026-10-07 目标重定向）
 
 ## Why
-用户令（2026-10-05）：训练与推理优先完全使用昇腾卡（云端 910B ¥20/h），算子充分参考 TileKernels；训练栈主路线=全 TileLang 自研（D6/D11–D13）。本域承载：环境、方言探针、七类算子移植、梯度对拍、性能基准、成本护栏——**G9 验收面**与三栈（5/6/11）的公共底座。
+用户令：**目标是基于 TileLang 做训练/推理算子优化，探索脱离 CUDA 生态**。C1 实勘（run de15）定谳三事实：① tilelang ascend 后端 = 2026-09-30 一次性开源的 **950 专用**实现（主仓单 commit e5a02f9a，379 文件，无 910B 历史线）；② 卡点集中在 950 专属 SIMT 头（c_api/asc_simd.h、simt_api/*），而**生成的 AIC 通路代码（gm2l1/l0c/cube gemm 等 intrinsic）代系通用**；③ 910B4+CANN8.5.2 上 torch_npu 底座健康（978 tok/s 前向），三栈 vehicle 随时可跑。
 
-## What Changes
-- 新增 `release/ascend/`：环境脚本（CANN/torch_npu/tilelang 版本 pin）+ 910B 开箱自检
-- 新增七类算子昇腾方言件（linear/rope/attn/GDN/LN/lm_head 读出/LoRA 注入），参考 TileKernels（`modeling` autograd 封装范式、`transform` RoPE、量化件备查）与 P1 `sys1/kernels/` 结构
-- 新增 `tests/test_ascend_gradcheck.py`：fp32 参考互锁梯度对拍（cpu target 本地 + NPU 云端两跑）
-- 新增基准与成本护栏：自研栈 vs torch_npu 底座 A/B 表；`ascend/cost_ledger.py` 分段记账（D12）
-- **回退决策点**：C1 探针不可用→torch_npu 底座（决策+原因入 run notes，三栈实验不受阻）
+## What Changes（两条研究路线并行）
+- **路线 B（主线·910B 后端移植）**：fork 模板层做 910B 分支——首验"头桩实验"（把 c_api/simt_api 头以 910B 等价物或空桩替代，AIC-only 算子通编），成立则七算子按"AIC 通路优先"逐件移植；不成立则界定最小改造集入档。
+- **路线 A（对照·950 官方后端）**：申请/等待 A3/950 云实例（Atlas 800I A3 超节点/650E 950DT 已产品化；ModelArts 镜像面待查），官方后端原样跑，作 910B 移植的性能与正确性参照系。
+- **三栈 vehicle**：训练先 torch_npu 底座（D6 预授权回退已启用），算子件成熟一个换一个（渐进替换，非全有全无）——G9 叙事即此过程本身。
 
 ## 边界与依赖
-- 依赖：tilelang（主仓 ascend dialect）、TileKernels（参考实现，950 标注需 910B 实证）、C1 云端实例
-- 被依赖方：p2-05/06/11（训练栈底座）、p2-10（NPU 推理后端）、p2-03（harness NPU 口）
-- 接口面：`ascend/kernels.py` 暴露与 P1 `sys1/kernels/` 同名接口（前向+backward），训练侧零改动切换
-- 禁止事项：不碰 `decision/`；不自研已在 TileKernels 验证过的非热点算子（先复用后自研）
+- 依赖：本仓 tilelang 主仓（fork/分支）、C1 实勘结论、（路线A）950 实例可得性
+- 被依赖方：p2-05/06/11（算子逐件替换的消费者）、p2-12（研究报告主章）
+- 接口面：`ascend/kernels/` 七件接口不变（cpu 对拍资产为 day-1 活资产，保留）
+- 禁止：不碰 `decision/`；路线 B 改动一律在 fork 分支，不污染主仓上游

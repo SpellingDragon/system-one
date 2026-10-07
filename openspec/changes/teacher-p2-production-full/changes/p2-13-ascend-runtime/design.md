@@ -1,16 +1,14 @@
-# p2-13 · design
+# p2-13 · design（910B 移植主线）
 
-## 技术要点
-- **探针先行（C1，风险前置）**：① tilelang ascend dialect 在 910B 编译跑通（TileKernels 标注 950，910B 未验——最大单点）；② TileKernels 昂腾后端自动切换是否在 910B 生效；③ torch_npu+transformers 前向作参照系与回退底座；④ bf16/fp16 数值行为。任一失败即按 D6 回退决策记录。
-- **七算子清单**（与 P1 Metal 方言件同构，接口同名）：gemm（含 dW 反向，参考 P1 `gemm_bwd_dw`）/rope（负角反向）/attn_sw（滑窗，1M 三件套复用）/GDN（Gated DeltaRule 前向+反向——TileKernels `engram` gating 范式参考，最重件）/add_ln（闭式反向）/读出 letter_rows（index_select）/LoRA 注入（旁路 gemm）。每件：cpu target 语义对拍（本地）→ NPU 编译对拍（云端）→ 基准（vs torch_npu）。
-- **梯度对拍互锁**：fp32 torch 参考为真值（P1 `torch_ref/` 复用），数值容差按 dtype 定；对拍不过不合入。
-- **成本护栏**：`cost_ledger.py` 记每段起止/时长/费用 → run notes；C4 报价 = 实测吞吐 × 三栈 token 预算；¥600 熔断。
-- 数据上云：rsync/oss 皆可，数据包在本地 W0/W1 装配完成后一次性上传。
+## 技术判断（C1 证据链）
+- 代系卡点=头而非通路：bisheng 对 910B（dav-2201）生成的 `asc_copy_gm2l1_nd2nz/ascend_gemm_l1<...>` 等调用在 C1 崩溃源码中完整出现且属 910B 兼容面；仅 `c_api/asc_simd.h`+`simt_api/*`（950 SIMD/SIMT 指令）缺失。故**头桩 MVP**：fork `src/tl_templates/ascend/common.h` 等六处 include，做 910B 分支（空桩或 910B vec API 等价），AIC-only 用例先通。
+- 七算子分层：gemm/dW/letter_readout/add_ln 纯 AIC 或 elementwise-AIC → 首批移植；rope/attn_sw/GDN 含 softmax/非线性 → 依赖 vector 通路（910B 旧 vector API），第二批或临时 torch 混合（同栈混合先例已在册）。
+- 路线A 参照：950 实例一旦可得，同批用例双跑，差异即"代系税"实证（研究报告素材）。
 
 ## 文件清单
-`release/ascend/{env_setup.sh,selfcheck.py,kernels/*.py,cost_ledger.py}` + `release/tests/test_ascend_gradcheck.py`
+`ascend/kernels/`（不动）+ fork 分支 `tilelang@sys1-910b`（模板层条件编译）+ `ascend/port910b/`（头桩与移植件）
 
 ## 风险与回退
-- 910B dialect 不可用 → torch_npu 底座（三栈照跑，算子故事降级为"基准表+回退记录"，G9 验收改为如实记录）
-- GDN 反向移植受阻 → 该层临时走 torch 实现（同栈混合），其余算子自研——渐进式，不搞全有全无
-- 云端环境搭建超时（>6h）→ 上报用户换镜像/换实例
+- 头桩实验失败（AIC 通路也隐式依赖新头）→ 界定最小改造集，如实入档，路线A 权重上调
+- 950 实例不可得 → 参照系改用 TileKernels 官方基准数字（卡面）+ 本地 CPU 对拍
+- vehicle 永远可跑：torch_npu 底座已验，研究不阻塞训练实验
