@@ -26,3 +26,4 @@ wandb/
 # 测试临时产物
 .tmp_*/
 release/tests/.tmp_p205/
+release/ascend/port910b/cann_cache/
