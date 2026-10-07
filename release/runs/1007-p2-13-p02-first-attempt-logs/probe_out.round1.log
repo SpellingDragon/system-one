@@ -1,0 +1,14 @@
+# probe910b  ARCH=dav-2201  ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest  REPO=/home/ma-user/tilelang_root
+## P1 头存在性：950 方言头在 910B 镜像里到底有没有
+  MISS c_api/asc_simd.h
+  MISS simt_api/asc_simt.h
+  MISS simt_api/asc_bf16.h
+  MISS simt_api/asc_fp16.h
+  MISS simt_api/asc_fp8.h
+  MISS simt_api/cooperative_groups.h
+  CANN 版本线：
+  pipe_*/simd intrinsic 家族目录数：0
+## P2 最小 TU：只 include common.h（910B 面，不定义 TL_ASCEND_SIMT）
+  --- 默认（910B 面）---
+  [rc=1] common.h 910B 面
+      > /home/ma-user/tilelang_root/src/tl_templates/ascend/common.h:5:10: fatal error: 'acl/acl.h' file not found
