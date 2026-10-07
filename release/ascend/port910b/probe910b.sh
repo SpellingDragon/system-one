@@ -45,6 +45,8 @@ if ! command -v bisheng >/dev/null 2>&1; then
   exit 2
 fi
 ASCEND_HOME="${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/latest}"
+CANN_INC="${CANN_INC:-$(ls -d /usr/local/Ascend/ascend-toolkit/latest/include 2>/dev/null || echo /usr/local/Ascend/ascend-toolkit/latest/include)}"
+[ -f /usr/local/Ascend/ascend-toolkit/latest/bin/set_env.bash ] && . /usr/local/Ascend/ascend-toolkit/latest/bin/set_env.bash 2>/dev/null || true
 say "# probe910b  ARCH=$ARCH  ASCEND_HOME=$ASCEND_HOME  REPO=$REPO"
 
 # ── P1 头存在性（裁决 墙0 / 墙4） ────────────────────────────────────────────
@@ -69,9 +71,9 @@ P2() {
 extern "C" __global__ __attribute__((aicore)) void probe_empty() {}
 EOF
   say "  --- 默认（910B 面）---"
-  run "common.h 910B 面" bisheng --npu-arch="$ARCH" -I"$TPL" -std=c++17 -fsyntax-only "$tu"
+  run "common.h 910B 面" bisheng -I "$CANN_INC" --npu-arch="$ARCH" -I"$TPL" -std=c++17 -fsyntax-only "$tu"
   say "  --- 对照：950 面（应失败在缺头，若成功说明桩头已够）---"
-  run "common.h + -DTL_ASCEND_SIMT" bisheng --npu-arch="$ARCH" -DTL_ASCEND_SIMT=1 \
+  run "common.h + -DTL_ASCEND_SIMT" bisheng -I "$CANN_INC" --npu-arch="$ARCH" -DTL_ASCEND_SIMT=1 \
       -I"$TPL" -std=c++17 -fsyntax-only "$tu"
   say "  预期首个 error 落在 reduce.h（§3-A 残留缺口：它未被 TL_ASCEND_SIMT 罩）"
 }
@@ -90,7 +92,7 @@ asc_loadalign asc_add asc_select PIPE_ALL PIPE_MTE2"
     for s in $syms; do echo "  (void)&${s};"; done
     echo '}'
   } > "$tu"
-  run "D1/D2/D3 符号点名（单次 TU，看未声明个数）" bisheng --npu-arch="$ARCH" \
+  run "D1/D2/D3 符号点名（单次 TU，看未声明个数）" bisheng -I "$CANN_INC" --npu-arch="$ARCH" \
       -I"$TPL" -std=c++17 -fsyntax-only "$tu" || true
   say "  逐条判定：日志里 'undeclared identifier' 的即 D→C（910B 无此件）"
   for s in $syms; do
@@ -109,7 +111,7 @@ void probe(::vector_f32 src, ::vector_bool<8> mask) {
   (void)c;
 }
 EOF
-  run "::vcvt 四控制参数签名" bisheng --npu-arch="$ARCH" -I"$TPL" -std=c++17 -fsyntax-only "$tu"
+  run "::vcvt 四控制参数签名" bisheng -I "$CANN_INC" --npu-arch="$ARCH" -I"$TPL" -std=c++17 -fsyntax-only "$tu"
 }
 
 # ── P5 核拓扑（裁决 C7 的 __mix__(1,2) 与 sub_block） ────────────────────────
@@ -121,7 +123,7 @@ extern "C" __global__ __mix__(1, 2) void probe_mix() {}
 extern "C" __global__ __cube__ void probe_cube() {}
 __device__ void probe_sub() { (void)asc_get_sub_block_id(); }
 EOF
-  run "__mix__(1,2)/__cube__/asc_get_sub_block_id" bisheng --npu-arch="$ARCH" -I"$TPL" \
+  run "__mix__(1,2)/__cube__/asc_get_sub_block_id" bisheng -I "$CANN_INC" --npu-arch="$ARCH" -I"$TPL" \
       -std=c++17 -fsyntax-only "$tu"
   say "  另需 host 侧打印实际核数：aclrtGetDeviceInfo 的 AIC/AIV 配比（人工执行）"
 }
@@ -131,7 +133,7 @@ P6() {
   say "## P6 arch 宏：__NPU_ARCH__ 在 2201 下取值 + bisheng 支持的 arch 集"
   local tu; tu="$(mktemp -d)/p6.cc"
   printf '#include <cstdio>\nint main(){\n#ifdef __NPU_ARCH__\n  printf("__NPU_ARCH__=%%d\\n", (int)__NPU_ARCH__);\n#else\n  printf("__NPU_ARCH__ UNDEF\\n");\n#endif\n  return 0;\n}\n' > "$tu"
-  run "取值" bisheng --npu-arch="$ARCH" -std=c++17 -E "$tu"
+  run "取值" bisheng -I "$CANN_INC" --npu-arch="$ARCH" -std=c++17 -E "$tu"
   bisheng --help 2>&1 | grep -i -A2 "npu-arch" | sed 's/^/    /' | tee -a "$OUT"
   say "  结论用途：若 __NPU_ARCH__ 可靠，则 TL_ASCEND_SIMT 可由它自动推导，免掉 -D 注入链"
 }
@@ -164,7 +166,7 @@ void probe() {
   asc_sync_pipe(PIPE_ALL);
 }
 EOF
-  run "event_t 运行期转换 + asc_sync_pipe" bisheng --npu-arch="$ARCH" -I"$TPL" \
+  run "event_t 运行期转换 + asc_sync_pipe" bisheng -I "$CANN_INC" --npu-arch="$ARCH" -I"$TPL" \
       -std=c++17 -fsyntax-only "$tu"
   say "  若失败：codegen_ascend.cc:1349 EmitHardEventSync_ 须改为编译期 HardEvent<X_Y> 模板参数"
 }
@@ -173,7 +175,7 @@ EOF
 P9() {
   say "## P9 port910b_compat.h 在 bisheng 上的形状检查（主机侧已 PASS，见 host_selfcheck.cc）"
   local dir; dir="$(cd "$(dirname "$0")" && pwd)"
-  run "compat 头 + 自检件" bisheng --npu-arch="$ARCH" -std=c++17 -I"$dir" -I"$TPL" \
+  run "compat 头 + 自检件" bisheng -I "$CANN_INC" --npu-arch="$ARCH" -std=c++17 -I"$dir" -I"$TPL" \
       -o /tmp/p01_sc_npu "$dir/host_selfcheck.cc"
   say "  冲突处理：报 redefinition 时逐个加 -DTL_PORT910B_SKIP_<name>（见 README §3）"
 }
