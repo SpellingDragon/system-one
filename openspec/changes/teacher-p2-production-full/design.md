@@ -70,7 +70,7 @@ flowchart TD
 | 10 | 服务化 | `serving-systemone` | HTTP+延迟协议+缓存联动 | 5 |
 | 11 | RL 栈 | `rl-rlcd` | log score+双通道 verifier+温度后置（910B） | 6 采样器/**13** |
 | 12 | 报告 | `tech-report` | 骨架+索引+边界+成本报表 | 全部（只读） |
-| **13** | **昇腾运行时** | `ascend-runtime` | 910B 环境/方言探针/自研算子栈/梯度对拍/基准/成本护栏 | TileKernels(ascend), tilelang, CANN/torch_npu(回退) |
+| **13** | **TileLang 昇腾算子优化（研究主线）** | `ascend-runtime` | 910B 头桩移植（原地制）/AIC 优先七算子/torch_npu 渐进替换/成本护栏；950 路线废 | tilelang 主仓, CANN 8.5.2(snt9b), torch_npu |
 
 ### D3 执行编排——三轨并行（2026-10-05 改云端版）
 

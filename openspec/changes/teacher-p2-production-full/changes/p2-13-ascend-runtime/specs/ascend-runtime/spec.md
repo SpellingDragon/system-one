@@ -1,7 +1,7 @@
 # ascend-runtime · spec
 
 ## Purpose
-为三栈（prod-sft/opd/rl）与推理提供 910B 上的自研 TileLang 算子底座，验收 G9；成本受控（D12）。
+在 910B+CANN 8.5.2（snt9b 镜像）上原地移植 TileLang 昇腾算子（头桩→AIC 优先七件），探索脱离 CUDA 生态；三栈以 torch_npu 底座运行、算子成熟一个换一个（渐进替换），验收 G9；成本受控（D12）。
 
 ## Requirements
 - 环境脚本可复现（版本 pin + dry-run 自检）；探针结论（方言可用性/数值/吞吐）必须实测入 run notes，禁止 mock 推断。
