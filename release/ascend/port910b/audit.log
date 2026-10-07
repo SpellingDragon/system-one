@@ -1,0 +1,67 @@
+# audit.log — P0-1 自证原文（重跑 ./checklist.sh 与下列 clang++ 应逐字一致）
+# 说明：symbols 模式是生成附表文件，不落 stdout；故行数以 inventory_symbols.md 为准。
+
+===== ./checklist.sh symbols （重生成附表） =====
+written: /Users/pengweiye/Documents/codes/system-one/release/ascend/port910b/inventory_symbols.md
+A = 35
+B = 20
+C = 250
+D = 44
+总符号行数 = 349
+附表符号行 = 353 （含 4 行分节表头 → 去重符号 349）
+
+===== ./checklist.sh (audit) =====
+# audit: grep 穷举 → 反查 INVENTORY.md + inventory_symbols.md   REPO=/Users/pengweiye/Documents/codes/tilelang
+  F1   950 代际头 include（c_api/simt_api）      uniq=6     unlisted=0
+  F2   device 属性与函数限定宏                uniq=16    unlisted=0
+  F3   SIMT 内建变量与核身份宏               uniq=11    unlisted=0
+  F4   SIMD 寄存器类型 vector_*                  uniq=19    unlisted=0
+  F5   类型代理（bf16/fp16/fp8/fp4/宽向量元组） uniq=29    unlisted=0
+  F6   asc_* C API（950 MicroAPI 命名空间）     uniq=160   unlisted=0
+  F7   双下划线内建（转换/存储/常量）   uniq=22    unlisted=0
+  F8   硬件枚举/tag/mode 类型与事件          uniq=47    unlisted=0
+  F9   C++ 标准库依赖（std::bit_cast / <bit>） uniq=3     unlisted=0
+  F10  950 专属语言构造与 pass 名             uniq=15    unlisted=0
+  F11  全局作用域 CCE 内建与 950 运行时件 uniq=19    unlisted=0
+  F12  分形/布局与同步容量前提             uniq=7     unlisted=0
+# 分类计数（附表逐符号）:
+   A = 35
+   B = 20
+   C = 250
+   D = 44
+AUDIT PASS: 穷举 354 个符号 100% 见于清单（unlisted=0）
+
+===== ./checklist.sh counts =====
+A = 35
+B = 20
+C = 250
+D = 44
+
+===== ./checklist.sh gap =====
+  # 残差候选=159 族内已覆盖=79
+RESIDUE 行数 = 80
+
+===== host_selfcheck：auto =====
+== port910b_compat.h host self-check ==
+   backend: bf16=0 half=1
+  (debug-print shape) dtype=bfloat16 value=1.000000
+f16 sweep: 200000 samples + 7 edges, mismatch=0
+SELFCHECK PASS: 0 failure (B 类 20 符号的等价性在主机成立)
+
+===== host_selfcheck：storage(0/0) =====
+== port910b_compat.h host self-check ==
+   backend: bf16=0 half=0
+  (debug-print shape) dtype=bfloat16 value=1.000000
+f16 sweep: 200000 samples + 7 edges, mismatch=0
+SELFCHECK PASS: 0 failure (B 类 20 符号的等价性在主机成立)
+
+===== host_selfcheck：builtin(1/1) =====
+== port910b_compat.h host self-check ==
+   backend: bf16=1 half=1
+  (debug-print shape) dtype=bfloat16 value=1.000000
+f16 sweep: 200000 samples + 7 edges, mismatch=0
+SELFCHECK PASS: 0 failure (B 类 20 符号的等价性在主机成立)
+
+===== 950 面罩内应空转 =====
+1 warning generated.
+（仅剩 -x c++ 直接编译头文件引起的 #pragma once 警告，属预期）

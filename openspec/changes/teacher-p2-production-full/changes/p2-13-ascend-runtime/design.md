@@ -1,8 +1,10 @@
 # p2-13 · design（910B 移植主线）
 
 ## 技术判断（C1 证据链）
+
+**2026-10-07 P0-1 回写（原判"卡点=头而非通路"过乐观，据 349 符号实勘改判）**：① 移植主体是 **codegen 向量侧压在 950 SIMT/SIMD 方言上**（C 类 250/72%）；本仓七件 kernel 全部以 T.SimtVF 为唯一向量载体（8/8 文件实证），910B 无 SIMT 硬件模型 → 算子**改道**（SIMD 化/标量化）而非加头。② AIC(cube) 通路 API 族（asc_init/asc_mmad/l12l0 系 14 符号，**asc_init 由 codegen 无条件发射每 kernel 首行**）静态不可判 = P0-2 vecadd 生死线探针（probe910b.sh P1-P10 已备好）。③ B 类 20（类型代理）已离线闭环（host_selfcheck 三配置 PASS、20 万样本 0 mismatch）。
 - 代系卡点=头而非通路：bisheng 对 910B（dav-2201）生成的 `asc_copy_gm2l1_nd2nz/ascend_gemm_l1<...>` 等调用在 C1 崩溃源码中完整出现且属 910B 兼容面；仅 `c_api/asc_simd.h`+`simt_api/*`（950 SIMD/SIMT 指令）缺失。故**头桩 MVP（原地制，不建分支）**：纯新增 `src/c_api/asc_simd.h`+`src/simt_api/*.h` 五桩（bisheng 的 -I 扫 src/ 即命中，零改上游文件），AIC-only 用例先通、缺失符号随验随补。
-- 七算子分层：gemm/dW/letter_readout/add_ln 纯 AIC 或 elementwise-AIC → 首批移植；rope/attn_sw/GDN 含 softmax/非线性 → 依赖 vector 通路（910B 旧 vector API），第二批或临时 torch 混合（同栈混合先例已在册）。
+- 七算子分层（P0-1 修正）：**无一纯 AIC**（全含 SimtVF 向量面）→ 首批=P0-2 判定 AIC 通路可用后，以 readout/gemm/dW/add_ln（向量面最薄、可标量化）先行改道；rope/attn_sw/GDN 向量面厚，依赖 SIMD 改道立项。
 - 路线A 参照：950 实例一旦可得，同批用例双跑，差异即"代系税"实证（研究报告素材）。
 
 ## 文件清单

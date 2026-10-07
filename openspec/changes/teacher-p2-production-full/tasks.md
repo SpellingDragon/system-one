@@ -44,7 +44,7 @@ flowchart TD
 - [x] p2-03 eval-registry — 评测注册 — `changes/p2-03-eval-registry/`（pin+锚点+parity 裁定；harness 预留 NPU 推理口）
 - [x] p2-04 baselines-dual — 双基线 — `changes/p2-04-baselines-dual/`（laya 本地 + StartLux-0.8B **对照评测（D11 白名单③）**）
 - [x] W1（B 轨）：p2-05 训练代码开发 + CPU 冒烟 —— 本地半场 5/7（kernel×torch 双曲线 100 步逐点对拍 2.6e-05、伪标缓存 512 题、7 档 run 含 2 中止负结果；B3b/C1 待 C5）
-- [x] p2-13 本地半场：七类算子方言件 target=cpu 语义对拍（linear/rope/attn/GDN/LN/读出 + LoRA 注入件）—— **20 绿，GDN 反向 partial 在册（spec 例外条）；R3–R7 待开卡**
+- [x] p2-13 本地半场：七类算子方言件 target=cpu 语义对拍（linear/rope/attn/GDN/LN/读出 + LoRA 注入件）—— **20 绿，GDN 反向 partial 在册（spec 例外条）；R3–R7 待开卡**；**甲路追加：P0-1 依赖面穷举完成（run 885c：349 符号、C=72% 压在 950 SIMT 方言、compat 离线闭环），P0-2 上卡探针包 probe910b.sh 就绪**
 
 ## 云端轨 C（910B，开卡后分段短租）
 

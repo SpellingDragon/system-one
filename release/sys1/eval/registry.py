@@ -244,7 +244,12 @@ REGISTRY: dict[str, Pin] = {
              "ocnli 50437 行（`pyarrow.parquet.ParquetFile(f).metadata.num_rows`）。只取"
              f"固定 seed 的 {ZH_TRAIN_SUBSET} 条自持（原件只当语料凭据，绝不当考卷），决策化交"
              "派生集 clue-train-decision。与 validation 那两份（clue-subset/clue-decision）分属两"
-             "轴，id 里的档位段（train/validation）天然互斥，隔离由 split_isolation 用例把关。"),
+             "轴，id 里的档位段（train/validation）天然互斥，隔离由 split_isolation 用例把关。"
+             "口径提示（读底账前先说明白，免得把两格当成两批题）：原件档那格的 qtype 是**折法提示**"
+             "——`_assemble_clue` 只在 label 取值 <=2 时才标 noul，而 ocnli 原件在盘上给出 0/1/2 三值，"
+             "于是 2000 条全记成 choice（1008 条 ocnli + 992 条 tnews）；真正按折法落题型的是决策档那一格"
+             "（noul 1008 / choice 992，与原件的任务分布逐位对上，两档 id 集合实测全等）。"
+             "三口一致以决策档为准：pin.qtypes=(choice,noul) ⊇ 决策档实出题型 ⊇ manifest.qtype_counts。"),
     "clue-train-decision": Pin(
         id="clue-train-decision", kind="derived", repo="sys1:eval.chinese",
         revision=ZH_DECISION_VERSION, split="train", full="opencompass-clue-parquet",
@@ -301,6 +306,8 @@ INTERN_TRAIN_PROBE = {
 #: 三条取证原样抄自 `.probe_p203_d3_train.py` 的运行输出（一条命令一条事实，可复跑），
 #: run 底账引用 verdict；不登记 CMMLU train 项，也不拿 dev 档改名冒充 train——dev 是少样本
 #: 示例档，改名叫 train 就是给考卷同源的数据刷上"练习册"的标签，训测隔离当场失效。
+#: 2026-10-07 复验注：那个脚本一度不在 release/ 下（结论退化成"抄来的话"，不可复跑即无效），
+#: 已按同样三条命令重建脚本并复跑对拍，数字与下面 evidence 逐位相符——见 `reverified` 那一行。
 ZH_TRAIN_PROBE = {
     "verdict": ("CMMLU 上游无 train 分割：modelscope/cmmlu 仓只有 README.md/cmmlu.py/"
                 "cmmlu_v1_0_1.zip 三件，归档内部只有 dev/(67 个 csv) 与 test/(67 个 csv)，"
@@ -321,6 +328,11 @@ ZH_TRAIN_PROBE = {
         "train-00000-of-00001.parquet（3399930 B）与 ocnli/train-00000-of-00001.parquet"
         "（2440405 B）——CLUE 确有 train 档，据此登记并真拉装配",
     ],
+    "reverified": ("2026-10-07 复跑 `release/.probe_p203_d3_train.py` 逐位对拍：盘上 cmmlu_v1_0_1.zip "
+                   "顶层只有 dev(68 条目/67 csv)、test(69/67)，含 train 的路径 0 个；raw/clue-train-subset "
+                   "下 tnews/train-00000-of-00001.parquet 3,399,930 B / 53,360 行，ocnli 同档 2,440,405 B "
+                   " / 50,437 行；魔搭列举 modelscope/cmmlu files=3 train_files=0、opencompass/clue "
+                   "files=49 train_files=11——三条全对得上，故结论与登记都不撤销"),
     "probed_at": "2026-10-06",
 }
 
