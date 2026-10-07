@@ -28,7 +28,7 @@ run() { # 白话: 执行一条命令，把退出码与首行 error 记进日志�
   local desc="$1"; shift
   set +e
   local tmp; tmp="$(mktemp)"
-  "$@" >"$tmp" 2>&1
+  timeout 90 "$@" >"$tmp" 2>&1  # P0-2a: 全探针统一超时守卫（round1 P3 挂起之鉴）
   local rc=$?
   set -e 2>/dev/null || true
   say "  [rc=$rc] $desc"
