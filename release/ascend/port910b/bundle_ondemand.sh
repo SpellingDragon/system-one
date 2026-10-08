@@ -12,14 +12,16 @@ git clone -q --depth 1 "$SRC" $SUB || { echo "FATAL: clone failed"; exit 1; }
 P910B=$SUB/release/ascend/port910b/patches   # 模板真源（compat/debug/dcache/common/numeric_limits + stubs）
 [ -d "$P910B" ] || { echo "FATAL: $P910B missing"; exit 1; }
 
-# CANN env 自适应（8.5.2 实例镜像 / cann-x.y.z 直装两种形态）
+# CANN env 自适应（官方 set_env.sh 引用未定义变量，source 期间放宽 -u）
+set +u
 for c in /usr/local/Ascend/ascend-toolkit/latest /usr/local/Ascend/cann-*; do
   [ -f "$c/set_env.sh" ] && { source "$c/set_env.sh"; break; }
 done
-CCEC=$(find /usr/local/Ascend -path "*ccec_compiler/bin/bisheng" | head -1)
+set -u
+CCEC=$(find /usr/local/Ascend -path "*ccec_compiler/bin/bisheng" 2>/dev/null | head -1)
 [ -n "$CCEC" ] && export BISHENG_HOME=$(dirname $(dirname "$CCEC"))
 ASCEND_NPU_ARCH=dav-2201; export ASCEND_NPU_ARCH
-echo "BISHENG_HOME=$BISHENG_HOME  arch=$ASCEND_NPU_ARCH"
+echo "BISHENG_HOME=${BISHENG_HOME:-<default>}  arch=$ASCEND_NPU_ARCH"
 
 echo "=== [1] tilelang ==="
 python3 -c "import tilelang" 2>/dev/null || pip3 install -q -i https://pypi.tuna.tsinghua.edu.cn/simple tilelang
