@@ -8,7 +8,7 @@
 - [x] **P0-2 链通里程碑（上卡 2026-10-08 执行）**：真机 CANN 8.5.2 上 **E2E-CUBE-ONLY PASS**（bundle 锚点漂移现场修复后）；kernel 可装载可执行但 `rel_err=nan`——L1/L0 的 NZ/分形布局未实现，**数值正确性移交 P1-1 首要验证目标**；run be5c 后续档：`bash bundle_ondemand.sh` 一键（clone→overlay→inject→compile→run，本地 clean-tilelang 全真预演已过 [4] E2E-CUBE-ONLY PASS）；卡上唯余 [5] RUNTIME-PASS{json}（2048³ bf16 数值+tflops）—— 验证：bundle 输出行入 run
 - [ ] P1-1 亦改本地迭代制：四件改道移植本地编译验证为主、上卡只验数值性能
 - [ ] P1-1 readout/gemm/dW/add_ln 四件**改道移植**（向量面最薄可标量化；P0-1 修正：无纯 AIC 件）+对拍 —— 验证：gradcheck NPU 档
-  - **P1-1a 编译面已收（2026-10-08 并发波）**：add_ln ✓ / readout ✓ / GDN-conv ✓ / gemm-cube 无回归 ✓（attempts/B、C 双代理，主仓 compat 合并真源 4/4 全绿，run p11-merge）；余：bf16 标量 cast 后端缺陷（生产走 fp16 无碍）、G-C4/C6 上卡证真、dW/rope/attn_sw 续
+  - **P1-1a 编译面已收（2026-10-08 并发波）**：add_ln ✓ / readout ✓ / GDN-conv ✓ / gemm-cube 无回归 ✓（attempts/B、C 双代理，主仓 compat 合并真源 4/4 全绿，run p11-merge）；**P1-1b 续收（2026-10-09 双代理波）**：gemm 全链（含 L0C→GM 输出段 copy_matrix_cc_to_gm 12 参）✓、dW(l0tr 主案 5/5 形)✓、rope(表加载×3)✓、attn_sw(×2)✓——真源 compat 966 行六线集成回归全绿；GAP-D1/D1b 已并真源；余：bf16 标量 cast（生产 fp16 无碍）、V1-V3+V2' 上卡证真、G-D2 上游单、G-D3 不投（l0tr 够用）、dW 出口朝向/rope 就地接口=生产接入波裁决
 - [ ] P1-2 rope/attn_sw 移植 —— 验证：同上
 - [ ] **P1-3 GDN 件移植（本项目旗舰）**：短卷积+delta rule 的 910B 表达（conv 用 AIC 滑窗累加替代或 910B vector API）+前后向 —— 验证：fp32 对拍 + 对 torch 参考数值（partial 分步验证可入账）
 - [ ] P2 三栈联调（torch_npu+自研件混合栈，GDN 件替换Conv2D路径）—— 验证：0.8B 训练步跑通

@@ -905,7 +905,7 @@ __aicore__ inline void asc_copy_l12l0b_transpose(__cb__ T *dst, __cbuf__ T *src,
   (void)kStart; (void)kStep;
   (void)dstStride;  // VERIFY V2
   load_cbuf_to_cb_transpose(dst, src, (uint16_t)mStart, (uint8_t)mStep, (uint16_t)srcStride,
-                            (uint8_t)0);
+                            (uint16_t)dstStride, false, (uint16_t)0);  // D1b 8 参（mm_impl.h:152）
 }
 
 // cube 计算：910B 官方 Cal（MmadParams(m,n,k,unitFlag,cmatrixSource,cmatrixInitVal)）
@@ -942,3 +942,24 @@ __aicore__ inline void asc_copy_l0c2gm(__gm__ float *dst, __cc__ float *src, int
 #endif  // TL910B_SEC12_L1GEMM
 #endif  // TL_PORT910B_NATIVE_TYPES
 #endif  // !TL_ASCEND_SIMT (§12)
+
+#ifndef TL_PORT910B_COMPAT_GAP_D_H
+#define TL_PORT910B_COMPAT_GAP_D_H
+
+#ifndef TL_ASCEND_SIMT  // 与 §12 同域：仅 910B native 面（非 SIMT）装配
+#ifdef TL_PORT910B_NATIVE_TYPES
+
+template <typename T>
+__aicore__ inline void asc_copy_l12l0a_transpose(__ca__ T *dst, __cbuf__ T *src, int mStart,
+                                                 int kStart, int mStep, int kStep, int srcStride,
+                                                 int dstStride) {
+  (void)kStart; (void)kStep;
+  (void)dstStride;  // VERIFY V2'：与 asc_copy_l12l0b_transpose 同款取舍
+  load_cbuf_to_ca_transpose(dst, src, (uint16_t)mStart, (uint8_t)mStep, (uint16_t)srcStride,
+                            (uint16_t)dstStride, false, (uint16_t)0);  // VERIFY V2' 位序
+}
+
+#endif  // TL_PORT910B_NATIVE_TYPES
+#endif  // !TL_ASCEND_SIMT
+#endif  // TL_PORT910B_COMPAT_GAP_D_H
+
