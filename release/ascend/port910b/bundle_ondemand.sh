@@ -39,12 +39,12 @@ import pathlib
 p = pathlib.Path(__import__("tilelang").__file__).parent / "contrib" / "bisheng.py"
 s = p.read_text()
 if "TL_PORT910B_NATIVE_TYPES" not in s:
-    old = 'result = ["-O2", "-fPIC", "-std=c++20"'
+    old = '"-O2", "-fPIC", "-std=c++20"'
     assert old in s, "anchor drift"
     import glob, os
     inc = [d for d in glob.glob("/usr/local/Ascend/*/aarch64-linux") + glob.glob("/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux")]
     extra = '", "-DTL_PORT910B_NATIVE_TYPES"' + "".join(f', "-I{d}/asc/impl", "-I{d}/asc/include"' for d in inc[:1]) + ']'
-    s = s.replace(old + ']', old + extra, 1)
+    s = s.replace(old, old + extra, 1)
     p.write_text(s); print("patched bisheng.py")
 else:
     print("bisheng.py already patched")

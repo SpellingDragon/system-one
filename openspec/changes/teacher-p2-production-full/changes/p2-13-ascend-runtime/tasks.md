@@ -5,7 +5,7 @@
   - 完成凭据（1007）：清单 `release/ascend/port910b/INVENTORY.md` 349 个去重符号 = A35/B20/C250/D44；自证 `cd release/ascend/port910b && ./checklist.sh` → `AUDIT PASS: 穷举 354 个符号 100% 见于清单（unlisted=0）`；兼容层 `port910b_compat.h` 主机三配置 `SELFCHECK PASS`；run `1007-p2-13-p01-910b-inventory-885c`
 - [x] **P0-2a 探针工装修复（离线·完成）**：source CANN env 或显式 -I $ASCEND_HOME/include / setsid 脱离 / 每探针 timeout 90 / P3 拆 grep 与编译两段（四条清单见 run p02-first-attempt）—— 验证：bash -n ✓；四修=CANN env source + -I $CANN_INC + timeout 90 全编译件 + find 限深超时（da4438e 随附）
 - [x] **P0-2L 本地编译判决环境（2026-10-08 思路重定向·主战场本地化）**：Mac 原生 aarch64 Docker（Ubuntu）+ CANN 8.5.2 toolkit（aarch64 公开下载版）——bisheng 交叉编译不需设备，P2–P9 编译类探针与 vecadd/gemm 编译判决**全部本地零成本闭环** —— 验证：容器内 bisheng --version + 最小 .asc 编译出 .o + probe910b 本地版全批判决落 run
-- [ ] **P0-2 链通里程碑（上卡·仅运行时）【BUNDLE-READY 2026-10-08】**：`bash bundle_ondemand.sh` 一键（clone→overlay→inject→compile→run，本地 clean-tilelang 全真预演已过 [4] E2E-CUBE-ONLY PASS）；卡上唯余 [5] RUNTIME-PASS{json}（2048³ bf16 数值+tflops）—— 验证：bundle 输出行入 run
+- [x] **P0-2 链通里程碑（上卡 2026-10-08 执行）**：真机 CANN 8.5.2 上 **E2E-CUBE-ONLY PASS**（bundle 锚点漂移现场修复后）；kernel 可装载可执行但 `rel_err=nan`——L1/L0 的 NZ/分形布局未实现，**数值正确性移交 P1-1 首要验证目标**；run be5c 后续档：`bash bundle_ondemand.sh` 一键（clone→overlay→inject→compile→run，本地 clean-tilelang 全真预演已过 [4] E2E-CUBE-ONLY PASS）；卡上唯余 [5] RUNTIME-PASS{json}（2048³ bf16 数值+tflops）—— 验证：bundle 输出行入 run
 - [ ] P1-1 亦改本地迭代制：四件改道移植本地编译验证为主、上卡只验数值性能
 - [ ] P1-1 readout/gemm/dW/add_ln 四件**改道移植**（向量面最薄可标量化；P0-1 修正：无纯 AIC 件）+对拍 —— 验证：gradcheck NPU 档
 - [ ] P1-2 rope/attn_sw 移植 —— 验证：同上
