@@ -28,8 +28,7 @@ python3 -c "import tilelang" 2>/dev/null || pip3 install -q -i https://pypi.tuna
 python3 -c "import tilelang; print('tilelang', tilelang.__version__)"
 
 echo "=== [2] overlay 910B templates onto pip tree ==="
-TPL=$(python3 -c "from tilelang import env as e; print(e.TL_TEMPLATE_FILES_DIR)")/ascend
-[ -d "$TPL" ] || TPL=$(python3 -c "import tilelang,os;print(os.path.dirname(tilelang.__file__))")/src/tl_templates/ascend
+TPL=$(python3 -c "import tilelang,os;print(os.path.join(os.path.dirname(tilelang.__file__),'src','tl_templates','ascend'))")
 cp -f "$P910B"/*.h "$TPL"/ 2>/dev/null
 for d in c_api simt_api; do mkdir -p "$(dirname "$TPL")/../$d" 2>/dev/null && cp -f "$P910B"/$d/*.h "$(dirname "$TPL")/../$d"/ 2>/dev/null || true; done
 grep -c TL_ASCEND_SIMT "$TPL/common.h" || { echo "FATAL: common.h not patched"; exit 1; }
