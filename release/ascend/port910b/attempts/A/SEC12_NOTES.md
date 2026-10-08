@@ -32,3 +32,8 @@ NZ 布局单位、L12L0 映射方向、l0c2gm 步距——数值真后 gemm rel_
   - mad 10 参官方形已入；MX/blockscaled 段 NATIVE 罩除（gemm.h，fp8 类型 950-only）
   - l0c2gm=stub（b10 硬件边界：L0C→UB 不支持，正解三段 L0C→L1→MTE3→GM 待 A-4/上卡）
 - 主线回归（§12 无门控合入后）：cube/B×2/GDN 全绿。
+
+## A-4 破局（同日续）：L0C→GM 真件 = `copy_matrix_cc_to_gm`（12 参变长 alias builtin）
+- 此前两轮否定检索（fix_matrix_cc_to_gm 名称错、FixpipeL0C2UB=assert-false 只封了 Cal 包装层）——真件在 cce_aicore_intrinsics.h:1020 `__builtin_cce_copy_matrix_cc_to_gm`，位序照抄 fixpipe_v2_impl.h:433 官方 Cal。同族 `copy_matrix_cc_to_cbuf/ubuf` 亦在（输出全向可用）。
+- **A2-COMPILE-PASS（tilelang 全管线）**：gemm 链 GM→L1→L0A/B→mad→L0C→GM 编译面完全贯通；主线 4/4 无回归；三容器已同步。
+- 上卡数值证真清单：V1（gm2l1 32B 单位/块）·V2（L12L0 位序）·V3（l0c2gm stride 单位与位映射）。

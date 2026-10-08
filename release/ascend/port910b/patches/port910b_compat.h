@@ -923,14 +923,20 @@ __aicore__ inline void asc_mmad(CT *cc, AT *ca, BT *cb, uint16_t m, uint16_t k, 
 __aicore__ inline void asc_copy_l0c2gm(__gm__ float *dst, __cc__ float *src, int mRows,
                                       int nCols, int srcM, int srcN,
                                       asc_store_l2_cache_mode smode, asc_unit_flag_mode uf,
-                                      asc_quant_mode q, asc_relu_pre_mode r, int a, int b,
-                                      int c, int d) {
-  (void)srcM; (void)srcN; (void)smode; (void)uf; (void)q; (void)r; (void)a; (void)b; (void)c; (void)d;
+                                      asc_quant_mode q, asc_relu_pre_mode r, int deqLow,
+                                      int nz2nd, int chSplit, int d) {
+  (void)srcM; (void)srcN; (void)smode; (void)q; (void)r; (void)deqLow; (void)chSplit; (void)d;
   // VERIFY V3：16 行分块（L0C 行粒度=16），行内 nCols 连续
-  // ⚠ b10/b11 负结果：2201 官方 FixpipeL0C2UB=assert-false（硬件不支持）、
-  // cc_to_gm 无 builtin——正解=L0C→L1(fix)→MTE3→GM 三段的 cfg 位段考古进行中。
-  // 本波编译链先通（stub），输出路=下轮 A-4 + 上卡数值清单同批证真。
-  (void)dst; (void)src; (void)mRows; (void)nCols;
+  // A-4 破局（fixpipe_v2_impl.h:433 官方 Cal 形 + cce_aicore_intrinsics.h:1020
+  // 变长 alias builtin）：L0C→GM 直出件 = copy_matrix_cc_to_gm(12 参)。
+  // 官方位序：(dst, src, rsvd0, nSize, mSize, dstStride, srcStride, unitFlag,
+  //           quant, relu, isChannelSplit, nz2ndEn)
+  // VERIFY V3：stride 单位（元素 vs 32B 块）与 codegen 14 参的位映射上卡定。
+  (void)srcM; (void)srcN; (void)smode; (void)q; (void)r;
+  copy_matrix_cc_to_gm(dst, src, (uint8_t)0, (uint16_t)nCols, (uint16_t)mRows,
+                       (uint16_t)nCols, (uint16_t)nCols, (uint8_t)uf,
+                       QuantMode_t::NoQuant, static_cast<uint8_t>(0), false,
+                       nz2nd /*arg12=1 ROW_MAJOR*/);
 }
 
 #endif  // TL910B_SEC12_L1GEMM
