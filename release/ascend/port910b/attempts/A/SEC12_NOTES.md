@@ -18,3 +18,17 @@
 
 ## 上卡验证点（V1/V2/V3 已标 §12 注释）
 NZ 布局单位、L12L0 映射方向、l0c2gm 步距——数值真后 gemm rel_err 判据转绿。
+
+## 追加（同日深夜）：硬件边界负结果 + v2 native 化
+- **b7 探针**：compat 链内（无框架）`load_cbuf_to_ca/load_gm_to_ca/mad(10参官方形)/fix_matrix_cc_to_cbufubuf_dualout/copy_gm_to_cbuf` 5/5 可编 → §12 v2 全 native，框架 include 废弃（其 dump 头/`__aicore__` 宏互斥、ASCENDC_DUMP 默认开等多重环境依赖不值得追）。
+- **b10 负结果**：官方 `FixpipeL0C2UBImpl` 在 2201 = **assert(false)——L0C→UB 硬件不支持**；b11：`FixpipeL0C2GMImpl` 存在但体内无直连 builtin → 正解应为 L0C→L1(fix 16bit 或 s32 系)→MTE3(copy_cbuf... _to_gm 方向名再考古)→GM。
+- CCE 禁可变成体全局（a2k3）→ set_gm2l1_nz_para 无状态化。
+- **本波收**：l0c2gm 暂 stub（编译链先通），输出三段路 = A-4 下一轮 + 上卡清单同批。
+
+## A-3 收官（同日破局）
+- **A2-GEMM-L1-PASS 2776B**：shared.l1 模板路编译贯通。全部官方形定档：
+  - `copy_gm_to_cbuf` 8 参（data_copy_impl.h:92：sid,blockCount,blockLen,srcStride,dstStride,pad_t）
+  - `load_cbuf_to_ca/cb` **9 参**（mm_impl.h:24：startIndex,repeatTimes,srcStride,dstGap,sid,transpose,**addr_cal_mode_t**）
+  - mad 10 参官方形已入；MX/blockscaled 段 NATIVE 罩除（gemm.h，fp8 类型 950-only）
+  - l0c2gm=stub（b10 硬件边界：L0C→UB 不支持，正解三段 L0C→L1→MTE3→GM 待 A-4/上卡）
+- 主线回归（§12 无门控合入后）：cube/B×2/GDN 全绿。

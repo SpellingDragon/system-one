@@ -561,6 +561,7 @@ TL910B_ASC_MMAD_OVERLOAD(float)
 __aicore__ inline void asc_sync_intra_wait(int pipe, int event) { (void)pipe; (void)event; __cce_pipe_barrier(PIPE_V); }
 __aicore__ inline void asc_sync_intra_set(int pipe, int event)  { (void)pipe; (void)event; }
 __aicore__ inline void asc_lock(int pipe, int id)   { (void)pipe; (void)id; __cce_pipe_barrier(PIPE_V); }
+__aicore__ inline void asc_lock(int pipe, int id, int mode) { (void)mode; asc_lock(pipe, id); }
 __aicore__ inline void asc_unlock(int pipe, int id, int mode) { (void)pipe; (void)id; (void)mode; }
 
 // ── 10b. AIV/索引/搬运面（一期 if(0) 分支符号可解析；数值待 host launch 绑定后精化）
@@ -844,15 +845,8 @@ __aicore__ inline void asc_copy_ub2gm_align(__gm__ uint8_t *dst, __ubuf__ uint8_
 #ifdef TL_PORT910B_NATIVE_TYPES
 #ifndef TL910B_SEC12_L1GEMM
 #define TL910B_SEC12_L1GEMM
-#if !defined(TL910B_SEC12_ENABLE)
-// §12 gate OFF（波次收敛态）：shared.l1 路径建材=官方 Cal 头组装问题未破（见
-// attempts/A/SEC12_NOTES.md：内置真名 load_cbuf_to_ca/mad 10 参官方形已获，
-// 差 builtin 声明组装）。开此门需 -DTL910B_SEC12_ENABLE=1。主线件不受影响。
-#else
-
-#include "kernel_operator.h"  // 框架按序全链（interface→impl；单拎 impl 头会因 __NPU_ARCH__
-                              // 注入顺序崩，a22 实证——故不另 include *_impl.h，Cal 层经此链可用）
-
+// b7 探针 5/5 USABLE（compat 链内，无框架 include）：load_cbuf_to_ca、load_gm_to_ca、
+// mad(官方 10 参)、fix_matrix_cc_to_cbufubuf_dualout、copy_gm_to_cbuf —— 全 native 组装。
 // codegen 发射的 mode 枚举（存在性面，值域保守）
 enum asc_unit_flag_mode : unsigned char { ASC_UF_MODE_DEFAULT = 0 };
 enum asc_quant_mode : unsigned char { ASC_QUANT_MODE_DEFAULT = 0 };
@@ -861,28 +855,27 @@ enum asc_relu_pre_mode : unsigned char { ASC_RELU_MODE_OFF = 0, ASC_RELU_MODE_ON
 #define ASC_LOCK_BLOCK 0
 #endif
 
-// NZ 参数缓存：950 是有状态 set→copy 模型，保持形态
-struct Tl910bNzState { uint16_t c0_stride = 16; int enable = 1; };
-static Tl910bNzState tl910b_gm2l1_nz;
-
+// NZ 参数：CCE 禁可变成体全局（a2k3 实证）→ 一期 set 空实现，
+// c0_stride 语义由 copy 侧固定块式搬运承担；V1' 上卡数值证真。
 __aicore__ inline void asc_set_gm2l1_nz_para(int en, int rchg, uint16_t c0_stride, int pad) {
-  (void)rchg; (void)pad;
-  tl910b_gm2l1_nz.enable = en;
-  tl910b_gm2l1_nz.c0_stride = c0_stride;
+  (void)en; (void)rchg; (void)c0_stride; (void)pad;
 }
 __aicore__ inline void asc_set_l0c_copy_nz_para(int en, int a, int b) { (void)en; (void)a; (void)b; }
 __aicore__ inline void asc_set_copy_pad_val(int v) { (void)v; }
 
 // GM→L1（ND/DN 首版同路：行块连续搬运。V1：NZ 语义在 padFuncMode 与块步距上卡定）
-__aicore__ inline void asc_copy_gm2l1_nd2nz(__cbuf__ uint8_t *dst, __gm__ uint8_t *src,
+template <typename DT, typename ST>
+__aicore__ inline void asc_copy_gm2l1_nd2nz(__cbuf__ DT *dst, __gm__ ST *src,
                                             int rowBytes, asc_load_l2_cache_mode mode,
                                             int nRows, int cols, int pad1, int pad2) {
   (void)mode; (void)cols; (void)pad1; (void)pad2;
-  uint16_t const blk = (uint16_t)((unsigned)rowBytes >> 5);      // VERIFY V1: 32B 单位
-  copy_gm_to_cbuf((__cbuf__ void *)dst, (__gm__ void *)src, (int8_t)0,
-                  (uint16_t)nRows, blk, blk, blk);
+  uint16_t const blk = (uint16_t)((unsigned)rowBytes >> 5);  // VERIFY V1: 32B 单位
+  // 官方 8 参（dav_c220 data_copy_impl.h:92）：sid,blockCount,blockLen,srcStride,dstStride,pad
+  copy_gm_to_cbuf((__cbuf__ void *)(uintptr_t)dst, (__gm__ void *)(uintptr_t)src, (int8_t)0,
+                  (uint16_t)nRows, blk, blk, blk, (pad_t)0);
 }
-__aicore__ inline void asc_copy_gm2l1_dn2nz(__cbuf__ uint8_t *dst, __gm__ uint8_t *src,
+template <typename DT, typename ST>
+__aicore__ inline void asc_copy_gm2l1_dn2nz(__cbuf__ DT *dst, __gm__ ST *src,
                                             int rowBytes, asc_load_l2_cache_mode mode,
                                             int nRows, int cols, int pad1, int pad2) {
   asc_copy_gm2l1_nd2nz(dst, src, rowBytes, mode, nRows, cols, pad1, pad2);  // VERIFY V1
@@ -894,26 +887,25 @@ __aicore__ inline void asc_copy_l12l0a(__ca__ T *dst, __cbuf__ T *src, int sid, 
                                        int mStep, int kStep, int srcStride, int dstStride) {
   (void)kStep;
   // VERIFY V2：startIndex=行块起点(kStart 语义按发射名取 m 起点)，repeatTimes=mStep
-  AscendC::LoadData2DParams p((uint16_t)kStart, (uint8_t)mStep, (uint16_t)srcStride,
-                              (uint8_t)sid, (uint16_t)dstStride, false, 0);
-  AscendC::LoadData2DL12L0ACal(dst, src, p);
+  // 官方 Cal 形（mm_impl.h:24）：(dst,src,startIndex,repeatTimes,srcStride,dstGap,sid,transpose,inc)
+  load_cbuf_to_ca(dst, src, (uint16_t)kStart, (uint8_t)mStep, (uint16_t)srcStride,
+                  (uint16_t)dstStride, (__cce_scalar::addr_cal_mode_t)0);  // VERIFY V2 位序
 }
 template <typename T>
 __aicore__ inline void asc_copy_l12l0b(__cb__ T *dst, __cbuf__ T *src, int sid, int kStart,
                                        int mStep, int kStep, int srcStride, int dstStride) {
   (void)kStep;
-  AscendC::LoadData2DParams p((uint16_t)kStart, (uint8_t)mStep, (uint16_t)srcStride,
-                              (uint8_t)sid, (uint16_t)dstStride, false, 0);
-  AscendC::LoadData2DL12L0BCal(dst, src, p);
+  load_cbuf_to_cb(dst, src, (uint16_t)kStart, (uint8_t)mStep, (uint16_t)srcStride,
+                  (uint16_t)dstStride, (__cce_scalar::addr_cal_mode_t)0);  // VERIFY V2 位序
 }
 template <typename T>
 __aicore__ inline void asc_copy_l12l0b_transpose(__cb__ T *dst, __cbuf__ T *src, int mStart,
                                                  int kStart, int mStep, int kStep, int srcStride,
                                                  int dstStride) {
   (void)kStart; (void)kStep;
-  AscendC::LoadData2DParams p((uint16_t)mStart, (uint8_t)mStep, (uint16_t)srcStride,
-                              (uint8_t)0, (uint16_t)dstStride, true /*ifTranspose*/, 0);
-  AscendC::LoadData2DL12L0BCal(dst, src, p);   // VERIFY V2: transpose 走 ifTranspose 形
+  (void)dstStride;  // VERIFY V2
+  load_cbuf_to_cb_transpose(dst, src, (uint16_t)mStart, (uint8_t)mStep, (uint16_t)srcStride,
+                            (uint8_t)0);
 }
 
 // cube 计算：910B 官方 Cal（MmadParams(m,n,k,unitFlag,cmatrixSource,cmatrixInitVal)）
@@ -922,9 +914,8 @@ __aicore__ inline void asc_mmad(CT *cc, AT *ca, BT *cb, uint16_t m, uint16_t k, 
                                 int unit_flag_ctrl, bool gemv_ctrl, bool btbuf_ctrl,
                                 bool zero_c_ctrl) {
   (void)gemv_ctrl; (void)btbuf_ctrl;
-  AscendC::MmadParams p(m, n, k, (uint8_t)unit_flag_ctrl, false /*cmatrixSource*/,
-                        zero_c_ctrl /*cmatrixInitVal: 1=清零起算*/);
-  AscendC::MmadCal(cc, ca, cb, p);
+  // 官方形（b7 实证）：mad(c,a,b,m,k,n,unitFlag,kDirAlign,cmatrixSource,cmatrixInitVal)
+  mad(cc, ca, cb, m, k, n, (uint8_t)unit_flag_ctrl, false, false, zero_c_ctrl);
 }
 
 // L0C→GM：fix 不支持 32bit 直 GM（native static_assert 实证）→ L0C→UB→GM 两段流水
@@ -936,18 +927,12 @@ __aicore__ inline void asc_copy_l0c2gm(__gm__ float *dst, __cc__ float *src, int
                                       int c, int d) {
   (void)srcM; (void)srcN; (void)smode; (void)uf; (void)q; (void)r; (void)a; (void)b; (void)c; (void)d;
   // VERIFY V3：16 行分块（L0C 行粒度=16），行内 nCols 连续
-  uint16_t const nBlk = (uint16_t)((unsigned)nCols >> 4);       // 16-col blocks? 单位上卡定
-  __ubuf__ float staging[16 * 64];                               // 单块 ≤ 16x64 f32
-  for (int rb = 0; rb < (mRows >> 4); ++rb) {
-    AscendC::FixpipeParamsV220 fp((uint16_t)nCols, 16, (uint16_t)nCols, 0, false);
-    AscendC::FixpipeL0C2UBImpl(staging, src + rb * 16 * nCols, fp);
-    uint16_t const blk = (uint16_t)((unsigned)(nCols * 4) >> 5);
-    copy_ubuf_to_gm((__gm__ void *)(dst + rb * 16 * nCols), (const __ubuf__ void *)staging,
-                    (int8_t)0, (uint16_t)16, blk, blk, blk);
-  }
+  // ⚠ b10/b11 负结果：2201 官方 FixpipeL0C2UB=assert-false（硬件不支持）、
+  // cc_to_gm 无 builtin——正解=L0C→L1(fix)→MTE3→GM 三段的 cfg 位段考古进行中。
+  // 本波编译链先通（stub），输出路=下轮 A-4 + 上卡数值清单同批证真。
+  (void)dst; (void)src; (void)mRows; (void)nCols;
 }
 
-#endif  // TL910B_SEC12_ENABLE
 #endif  // TL910B_SEC12_L1GEMM
 #endif  // TL_PORT910B_NATIVE_TYPES
 #endif  // !TL_ASCEND_SIMT (§12)
