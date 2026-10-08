@@ -569,26 +569,75 @@ __aicore__ inline tl910b_dim3 tl910b_blockIdx_holder() { uint32_t i = get_block_
 __aicore__ inline int32_t asc_get_sub_block_id() { return (int32_t)get_subblockid(); }
 
 enum asc_load_l2_cache_mode { ASC_LOAD_L2_CACHE_ALLOC = 0, ASC_LOAD_L2_CACHE_NORMAL = 1 };
-// codegen: asc_copy_gm2ub_align(dst, src, sid, lenBurst, srcStride, dstStride, blockGroup, mode, nBurst, totalLen)
+// ── 10b-GAPB（P1-1 执行代理 B 于 cann910b-b 实测补齐；证据见 attempts/B/compat_gap_B.md）
+#ifndef TL910B_GAPB_APPLIED
+#define TL910B_GAPB_APPLIED
+
+// G3: store 侧 L2 cache 模式枚举。发射点 codegen_ascend.cc:1430 以
+// `static_cast<asc_store_l2_cache_mode>(n)` 传值（n=4 来自 copy.cc:316 kStoreDefaultL2CacheCtrl），
+// 910B 的 GM<-UB 搬运原生件无 L2 ctrl 形参，本值在此层被丢弃。
+enum asc_store_l2_cache_mode : unsigned char {  // merged B(G3)+C(G-C2): fixed underlying
+  // type required for static_cast<...>(4); 2201 native copy drops the hint anyway
+  ASC_STORE_L2_CACHE_ALLOC = 0,
+  ASC_STORE_L2_CACHE_NO_ALLOC = 1,
+  ASC_STORE_L2_CACHE_FREE = 2,
+  ASC_STORE_L2_CACHE_NORMAL = 4,  // kStoreDefaultL2CacheCtrl @ src/ascend/op/copy.cc:316
+};
+
+// G1: GM<->UB 搬运的 910B 正确形态（7 参原生件，长度/步长以 32B 为单位）。
+// codegen 侧实发形态（src/ascend/codegen/codegen_ascend.cc:1405-1433 + src/ascend/op/copy.cc:300-328）：
+//   asc_copy_gm2ub_align(dst, src, n_rows, row_bytes, 0, 0, 0, load_mode, src_stride_bytes, dst_stride_bytes)
+//   asc_copy_ub2gm_align(dst, src, burst_num, burst_len, store_mode, burst_dst_stride, burst_src_stride)  // 7 参!
+// 910B 原生件（asc/impl/basic_api/dav_c220/kernel_operator_data_copy_impl.h:51/124/221）：
+//   copy_gm_to_ubuf(__ubuf__ void*, __gm__ void*, sid, blockCount, blockLen, srcStride, dstStride)
+//   copy_ubuf_to_gm(__gm__  void*, __ubuf__ void*, sid, blockCount, blockLen, srcStride, dstStride)
+//   —— 官方 :221 传 `tensorSize*sizeof(T)/32` 作 blockLen，故单位=32B；名字见
+//      cce_aicore_intrinsics.h:992/1042（namespace __cce_scalar，无 arch guard）。
+#define TL910B_BYTES_TO_BLK(x) ((uint16_t)(((int)(x)) / 32))
+
 __aicore__ inline void asc_copy_gm2ub_align(__ubuf__ uint8_t *dst, __gm__ uint8_t *src,
-                                           int sid, int lenBurst, int srcStride, int dstStride,
-                                           int blockGroup, asc_load_l2_cache_mode mode,
-                                           int nBurst, int totalLen) {
-  (void)blockGroup; (void)mode; (void)totalLen;
-  uint64_t config = ((uint64_t)(sid & 0xf)) | ((uint64_t)(nBurst & 0xfff) << 4) |
-                    ((uint64_t)(lenBurst & 0xffff) << 16) | ((uint64_t)(srcStride & 0xffff) << 32) |
-                    ((uint64_t)(dstStride & 0xffff) << 48);
-  copy_gm_to_ubuf(dst, src, config);
+                                            int blockCount, int blockLenB, int rsvd0,
+                                            int rsvd1 /*right_pad*/, int rsvd2,
+                                            asc_load_l2_cache_mode mode, int srcStrideB,
+                                            int dstStrideB) {
+  (void)rsvd0; (void)rsvd1; (void)rsvd2; (void)mode;
+  __cce_scalar::copy_gm_to_ubuf((__ubuf__ void *)dst, (__gm__ void *)src, (uint8_t)0,
+                                (uint16_t)blockCount, TL910B_BYTES_TO_BLK(blockLenB),
+                                TL910B_BYTES_TO_BLK(srcStrideB), TL910B_BYTES_TO_BLK(dstStrideB));
 }
-__aicore__ inline void asc_copy_ub2gm_align(__gm__ uint8_t *dst, __ubuf__ uint8_t *src,
-                                           int sid, int lenBurst, int srcStride, int dstStride,
-                                           int blockGroup, int mode, int nBurst, int totalLen) {
-  (void)blockGroup; (void)mode; (void)totalLen;
-  uint64_t config = ((uint64_t)(sid & 0xf)) | ((uint64_t)(nBurst & 0xfff) << 4) |
-                    ((uint64_t)(lenBurst & 0xffff) << 16) | ((uint64_t)(srcStride & 0xffff) << 32) |
-                    ((uint64_t)(dstStride & 0xffff) << 48);
-  copy_ubuf_to_gm(dst, src, config);
-}
+
+// (B 版 ub2gm 已由 C 版取代：同 codegen 契约、注释与 32B 单位换算更严谨 @ orchestration)
+
+// G2: 跨 pipe 事件对。发射点：T.copy(gm->ub) 后 `asc_sync_notify(PIPE_MTE2, PIPE_S,
+// static_cast<event_t>(0))`，首个消费点 asc_sync_wait(...)；ub->gm 前为 (PIPE_S, PIPE_MTE3)
+// （见 gen_vec.asc / gen_ub2gm.asc）。910B 依据：AscendC dav_c220 官方搬运即
+//   SetFlag<HardEvent::MTE2_S>/S_MTE3 成对使用（kernel_operator_data_copy_impl.h:167-168,
+//   kernel_event.h:57 MTE2_S）；toolchain 自身样板 __clang_cce_aicore_functions.h:2152-2159。
+// **必须用宏、不能用 inline 函数**：__cce_scalar::set_flag/wait_flag 是
+//   `__attribute__((clang_builtin_alias(...))) void set_flag(...)`（cce_aicore_intrinsics.h:2072/2742），
+//   CCE 前端校验要求 pipe 实参为字面枚举常量；实测（attempts/B/probe_setflag.sh）：
+//     V1 字面量直调        COMPILE-OK
+//     V2 inline 函数转调   COMPILE-FAIL "the 1st parameter maybe need a type 'pipe_t'"
+//     V3/V4 宏（带/不带括号）COMPILE-OK
+//     V5 static_cast<event_t>(3) COMPILE-OK（event 可非 0）
+//   这也解释了 toolchain 的 __cce_set_flag(:2796) 为何 (void)p;(void)tp 丢弃实参、硬编码
+//   PIPE_M->PIPE_V —— 它无法转发变量形 pipe 实参。我们靠宏保住真实的 MTE2->S / S->MTE3 语义。
+#ifndef asc_sync_notify
+#define asc_sync_notify(from, to, evt) __cce_scalar::set_flag(from, to, evt)
+#endif
+#ifndef asc_sync_wait
+#define asc_sync_wait(from, to, evt) __cce_scalar::wait_flag(from, to, evt)
+#endif
+
+// G4: 910B(dav-2201) **标量面没有 rsqrtf**。一符号一 TU 实测（attempts/B/probe_math_symbols.sh）：
+//     sqrt(float)=OK；rsqrtf / sqrtf / expf / exp / logf / log / powf / fabs / floorf /
+//     ceilf / tanhf / __nv_rsqrtf / __nv_expf 全 MISSING；__builtin_sqrt FAIL（aicore 函数禁 double）。
+// tilelang 的 T.rsqrt 在 vector 面落码为标量 `rsqrtf(float)`（见 gen_rsqrt.asc），故补最小 shim。
+// 数值口径：1/sqrt(x)，走已验证的标量 sqrt；**不等价于 RCRS/RSQRT 近似指令**，
+//   编译面等价、上卡后与 AscendC 原生 rsqrt 可能有 ~ulp 级差异（RESULT.md 已申报）。
+__aicore__ inline float rsqrtf(float x) { return 1.0f / sqrt(x); }
+
+#endif // TL910B_GAPB_APPLIED
 __aicore__ inline void asc_sync_intra_arrive(int pipe, int event) { (void)pipe; (void)event; }
 #endif // TL_PORT910B_NATIVE_TYPES (AIC adapters)
 
@@ -621,3 +670,155 @@ static_assert(tl910b::tl910b_f32_to_bf16_bits(0.5f) == 0x3F00u, "bf16(0.5)");
 
 #endif // !TL_PORT910B_NATIVE_TYPES (self-check)
 #endif // !TL_ASCEND_SIMT
+
+// ════════════════════════════════════════════════════════════════════════════
+// attempts/C/compat_patch_C.h — GAP-C：910B 标量数学面（p2-13 甲路 P1-1 波 C）
+//
+// 真源应落在 /tilelang/src/tl_templates/ascend/port910b_compat.h 的 §11；本波硬
+// 边界禁改主仓，故以「附加块」形式由 attempts/C/env_setup.sh [2b] 注入容器 pip 树
+// 副本（追加在文件尾，自带罩，不动 §0-§10 的任何行）。
+//
+// 依据（可复跑）：attempts/C/probe_math.py @ cann910b-c（CANN 8.5.0 / bisheng
+// clang 15.0.5 / dav-2201 / target_format=aibin，与 tilelang codegen 同一条编译通路）
+//   · 未声明（编译期即 error）：expf sqrtf rsqrtf fabsf floorf logf log2f tanhf powf exp10f
+//   · 编得过但链不上（ld.lld: undefined symbol）：__builtin_expf __builtin_exp2f
+//     __builtin_sqrtf __builtin_floorf __builtin_ceilf __builtin_log2f
+//   · 原生可用：sqrt（重载含 float）、abs、__builtin_fabsf（纯指令，无 libcall）、四则
+//   · #include <math.h> → 把 host libstdc++ 拖进来，stl_iterator.h 直接崩，禁路
+//   ⇒ codegen_ascend 的 math 发射面（intrin_rule_ascend.cc: AscendMath 对 float32
+//     一律 name+'f'）在 910B **整条不存在**，凡带超越函数的件（GDN SiLU、softmax、
+//     RMSNorm 的 rsqrt、delta-rule 的 log/decay）都必须走 compat。
+//   · 另证（GAP-C 自身踩坑）：compat §1 的 tl910b_bit_cast 是**无 __aicore__ 限定**的
+//     `inline constexpr` 模板，从 __aicore__ 函数里调用会被 CCE 的重载集判成
+//     "no matching function for call to 'tl910b_bit_cast'"（且插件把真实诊断吞掉，
+//     只留 Fatal Err）。所以本块内部的位重解释一律就地写在 __aicore__ 函数里，
+//     不调 §1/§5 的任何 helper。→ 已登记为缺口 G-C0（compat 侧缺一个 __aicore__ 版
+//     bit_cast 入口）。
+//
+// 退让：单个名字还给上游 → -DTL_PORT910B_SKIP_expf / -DTL_PORT910B_SKIP_fabsf；
+//       整块关掉 → 不注入本文件即可（§0-§10 不依赖这里的任何名字）。
+// ════════════════════════════════════════════════════════════════════════════
+#ifndef TL_ASCEND_SIMT
+#ifdef TL_PORT910B_NATIVE_TYPES
+#ifndef TL_PORT910B_COMPAT_GAP_C_H
+#define TL_PORT910B_COMPAT_GAP_C_H
+
+// float <-> uint32 位视图（就地、__aicore__，不借 compat §1 模板）
+__aicore__ inline unsigned int tl910b_gap_f2u(float x) {
+  float q = x;
+  return *reinterpret_cast<unsigned int *>(&q);
+}
+__aicore__ inline float tl910b_gap_u2f(unsigned int bits) {
+  unsigned int u = bits;
+  return *reinterpret_cast<float *>(&u);
+}
+
+// expf：910B 标量核无 SFU 入口 → 范围规约 + 6 阶多项式 + 指数域拼 2^n。
+//   x = n*ln2 + r（n=round(x*log2e)，|r| <= ln2/2），e^r 用 6 阶 Taylor，
+//   e^x = e^r * 2^n。|r|<=ln2/2 时尾项 ~1.2e-7（相对），与 fp32 eps 同量级；
+//   e^r 可能落到 [0.707,1) → 左移一次规格化到 [1,2) 后直接加指数域。
+//   边界：x<=-104 → 0（sigmoid 语义 exp(-z)→0 正确）；x>=88 → FLT_MAX（不产 inf）。
+__aicore__ inline float tl910b_expf(float x) {
+  if (x <= -104.0f) return 0.0f;
+  if (x >= 88.0f) return 3.4028234663852886e38f;
+  const float kLog2e = 1.44269504088896340736f;
+  const float kLn2 = 0.69314718055994530942f;
+  const float t = x * kLog2e;
+  int n = static_cast<int>(t >= 0.0f ? t + 0.5f : t - 0.5f);
+  float r = x - static_cast<float>(n) * kLn2;
+  float p = 1.0f + r * (1.0f + r * (0.5f + r * (0.16666666666666666f +
+              r * (0.041666666666666664f + r * (0.008333333333333333f +
+              r * 0.001388888888888889f)))));
+  if (p < 1.0f) {
+    p += p;  // *2
+    n -= 1;
+  }
+  // 指数域拼接：p∈[1,2) 时 f2u(p) 的指数域**已是 127**，所以只能再叠 n（不是 n+127！）。
+  // 注：本波无卡，这个双重加 127 的错是由 c_gdn_golden.py 的逐行复刻抓到的
+  // （exp(0) 会算成 1.7e38、exp(1) 直接 nan）→ 两边必须同步维护。
+  if (n < -126) return 0.0f;
+  if (n > 127) return 3.4028234663852886e38f;
+  const unsigned int mant = tl910b_gap_f2u(p);
+  return (n < 0)
+      ? tl910b_gap_u2f(mant - (static_cast<unsigned int>(-n) << 23))
+      : tl910b_gap_u2f(mant + (static_cast<unsigned int>(n) << 23));
+}
+
+// fabsf：让位给 clang 纯指令内建（探针实证 __builtin_fabsf PASS，无 libcall）。
+__aicore__ inline float tl910b_fabsf(float x) { return __builtin_fabsf(x); }
+
+// codegen 发射的是无修饰全局名，用函数式宏接走（宏而非重载：上游若哪天补了真
+// 声明也不会撞「同名不同种类符号」）。
+#ifndef TL_PORT910B_SKIP_expf
+#define expf(x) tl910b_expf(x)
+#endif
+#ifndef TL_PORT910B_SKIP_fabsf
+#define fabsf(x) tl910b_fabsf(x)
+#endif
+
+#endif  // TL_PORT910B_COMPAT_GAP_C_H
+#endif  // TL_PORT910B_NATIVE_TYPES
+#endif  // TL_ASCEND_SIMT
+
+// ════════════════════════════════════════════════════════════════════════════
+// GAP-C 第二块：UB<->GM 搬运面（compat §10b 的 store 侧补齐）— p2-13 甲路 P1-1 波 C
+// （自带守卫，可独立追加在 §0-§10 之后；不动原有任何一行）
+//
+// 依据（可复跑）：attempts/C/probe_dma.py @ cann910b-c（dav-2201 / aibin 全链）
+//   PASS: copy_gm_to_ubuf(dst,src,uint64 cfg) / copy_gm_to_ubuf(dst,src,sid,
+//         burst_num,burst_len,srcStride,dstStride) / copy_ubuf_to_gm 两形态 /
+//         asc_copy_gm2ub_align(10 参) / asc_copy_ub2gm_align(10 参)
+//   FAIL: copy_data / copy_data_align64（910B AIV 面无此重载）;
+//         asc_store_l2_cache_mode（unknown type name）;
+//         asc_copy_ub2gm_align 的 **7 参** 形态（与 10 参声明 arity 不符）
+//
+// 事实核对（主仓，只读）：
+//   * codegen_ascend.cc:1420 EmitUbufToGmCopy_ 只发 7 参：
+//       asc_copy_ub2gm_align(dst, src, burst_num, burst_len,
+//                           static_cast<asc_store_l2_cache_mode>(ctl),
+//                           burst_dst_stride, burst_src_stride)
+//     （IR op 是 8 参，arg2=sid 被 codegen 主动丢弃）
+//   * port910b_compat.h:571 只定义了 asc_load_l2_cache_mode；store 侧枚举**从未
+//     被定义过**，§10b 的 ub2gm 适配器按 10 参写 → codegen 的 7 参发射体从未可编。
+//   ⇒ 两个纯 compat 缺口：G-C2（缺 asc_store_l2_cache_mode 枚举）、
+//      G-C3（ub2gm arity 与 codegen 发射不符）。本块补齐，重载与 §10b 原行共存。
+//
+// 910B 原生选型：走 **7 参形态**（AscendC 自己在 dav_c220/
+// kernel_operator_data_copy_impl.h 的 DataCopyUB2GMImpl 里就是这么调的），
+// 而非 §10b 那种 packed-config 三参（950 风格，本探针也证可编）。
+// l2_cache_ctl：910B 该原生形态不吃此参数 → 与 §10b 一致地忽略（性能提示，非正确性）。
+// ════════════════════════════════════════════════════════════════════════════
+#ifndef TL_ASCEND_SIMT
+#ifdef TL_PORT910B_NATIVE_TYPES
+#ifndef TL_PORT910B_COMPAT_GAP_C_DMA_H
+#define TL_PORT910B_COMPAT_GAP_C_DMA_H
+
+// G-C2：codegen 硬引用该枚举（值域 [0,15]，见 ascend/op/copy.cc L2CacheCtrlOr）。
+// 固定底层类型：C++11 起有 fixed underlying type 时枚举可取底层类型全域，
+// 故 static_cast<asc_store_l2_cache_mode>(4) 合法。
+// (enum merged into GAP-B block at orchestration; identical values)
+
+// G-C3：与 codegen 发射体逐参数对齐的 7 参重载。
+// 语义映射（照抄 AscendC dav_c220 DataCopyUB2GMImpl 的实参顺序）：
+//   sid=0（codegen 不发 sid）、blockCount=burst_num、blockLen=burst_len、
+//   srcStride=burst_src_stride、dstStride=burst_dst_stride。
+// 单位：已按上述证据做 bytes->32B-blocks 换算（G-C4 已定性，仍需上卡数值证真）。
+__aicore__ inline void asc_copy_ub2gm_align(__gm__ uint8_t *dst, __ubuf__ uint8_t *src,
+                                            int burst_num, int burst_len,
+                                            asc_store_l2_cache_mode mode,
+                                            int burst_dst_stride,
+                                            int burst_src_stride) {
+  (void)mode;  // 910B 原生 7 参形态不吃 l2_cache_ctl
+  // 单位换算：形参是**字节**（codegen/IR 约定，见 copy.cc AscendMTEBytesFromElements），
+  // 910B 原生 blockLen/stride 以 ONE_BLK_SIZE=32B 为单位（证据：asc/include/adv_api/
+  // matmul/matmul_client.h:2745 即 blockLen = N * sizeof(T) / ONE_BLK_SIZE）。
+  // 同一件事在 AscendC dav_c220 DataCopyUB2GMImpl 里也是直接透传 params 的块单位。
+  // 不换算 = 64 倍过搬。非 32B 倍数的尾段需 align_b8/b16/b32 变体 → G-C6。
+  copy_ubuf_to_gm(dst, src, (int8_t)0, (uint16_t)burst_num,
+                  (uint16_t)(burst_len >> 5), (uint16_t)(burst_src_stride >> 5),
+                  (uint16_t)(burst_dst_stride >> 5));
+}
+
+#endif  // TL_PORT910B_COMPAT_GAP_C_DMA_H
+#endif  // TL_PORT910B_NATIVE_TYPES
+#endif  // TL_ASCEND_SIMT

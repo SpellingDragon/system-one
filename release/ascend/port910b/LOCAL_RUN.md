@@ -13,3 +13,6 @@ docker exec cann910b bash -c 'source /usr/local/Ascend/cann-8.5.0/set_env.sh; \
 - 必须用 **内层 ccec_compiler/bin/bisheng**（BISHENG_HOME 覆盖）+ `.asc` 自动语言（外层 wrapper 硬传 -x cce 会撞 mad feature-gate）；
 - pip bisheng.py 需注入 `-DTL_PORT910B_NATIVE_TYPES`（一次性，见 run 1008-a545）；
 - 主仓模板树是补丁真源，容器 pip 树只是运行副本。
+
+- **缓存纪律**（B/C 实证）：tilelang 缓存按 kernel 源码哈希、不含模板内容——改 compat 后判决必须 `TILELANG_CACHE_DIR=$(mktemp -d)` 前缀，否则拿到陈旧 PASS/FAIL。
+- bisheng 注入统一用 `patches/patch_bisheng.py`（幂等+py_compile 自证）。

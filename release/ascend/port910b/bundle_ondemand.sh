@@ -33,23 +33,10 @@ cp -f "$P910B"/*.h "$TPL"/ 2>/dev/null
 for d in c_api simt_api; do mkdir -p "$(dirname "$TPL")/../$d" 2>/dev/null && cp -f "$P910B"/$d/*.h "$(dirname "$TPL")/../$d"/ 2>/dev/null || true; done
 grep -c TL_ASCEND_SIMT "$TPL/common.h" || { echo "FATAL: common.h not patched"; exit 1; }
 
-echo "=== [3] bisheng options injection (NATIVE_TYPES + asc include + ccec path) ==="
-python3 - <<'EOF'
-import pathlib
-p = pathlib.Path(__import__("tilelang").__file__).parent / "contrib" / "bisheng.py"
-s = p.read_text()
-if "TL_PORT910B_NATIVE_TYPES" not in s:
-    old = '"-O2", "-fPIC", "-std=c++20"'
-    assert old in s, "anchor drift"
-    import glob, os
-    inc = [d for d in glob.glob("/usr/local/Ascend/*/aarch64-linux") + glob.glob("/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux")]
-    extra = '", "-DTL_PORT910B_NATIVE_TYPES"' + "".join(f', "-I{d}/asc/impl", "-I{d}/asc/include"' for d in inc[:1]) + ']'
-    s = s.replace(old, old + extra, 1)
-    p.write_text(s); print("patched bisheng.py")
-else:
-    print("bisheng.py already patched")
-EOF
+echo "=== [3] bisheng options injection (idempotent, py_compile-verified) ==="
+python3 "$P910B/../patches/patch_bisheng.py" || { echo "FATAL: bisheng inject failed"; exit 1; }
 
+# 缓存纪律：tilelang 缓存 key 不含模板内容，改 compat 必须换 TILELANG_CACHE_DIR（见 run B/C 战报）
 echo "=== [4] compile verdict (local-verified shape) ==="
 cd /tmp && timeout 300 python3 "$P910B/../e2e_cube.py" 2>&1 | grep -E "E2E-CUBE|HAS_MIX" | head -2
 
