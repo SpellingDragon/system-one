@@ -63,8 +63,19 @@ def main():
         print('bisheng.py already patched (%s)' % p)
         return
     root = asc_root()
-    flags = '"-DTL_PORT910B_NATIVE_TYPES", "%s", "%s", ' % (
-        '-I%s/asc/impl' % root, '-I%s/asc/include' % root)
+    incs = [
+        '-I%s/asc/impl' % root,
+        '-I%s/asc/include' % root,
+        '-I%s/tikcpp/tikcfw' % root,
+        '-I%s/tikcpp/tikcfw/impl' % root,
+        '-I%s/tikcpp/tikcfw/interface' % root,
+        '-I%s/tikcpp/tikcfw/lib' % root,
+        '-I%s/ascendc/include/basic_api' % root,
+        '-I%s/ascendc/include/highlevel_api' % root,
+        '-I%s/include' % root
+    ]
+    flags = '"-DTL_PORT910B_NATIVE_TYPES", ' + ' '.join('"%s", ' % i for i in incs)
+
     new_line = '    result = %s%s"-mllvm", "-cce-aicore-dcpreload-args=false"]' % (TAIL, flags)
     s2 = PAT.sub(lambda m: new_line, s, count=1)
     compile(s2, str(p), 'exec')  # 语法自检通过才落盘
