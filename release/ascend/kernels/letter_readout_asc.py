@@ -4,17 +4,19 @@
 这条叫"读出 letter_rows"，即字母表那几十行从权重表里点出来交给下游，不做任何算术。反向
 `backward(row_count, ids, dY, target)` 交回 `dRows[ids[i]] += dY[i]`：同一行被点到多次时必须是
 **加**，不是覆盖。
-【怎么做】① 前向按"一次一行"走：把那一行整条搬进本地/UB，再整条搬出到出口——搬运自带边界谓词，
-   所以抽行数（picked）与表行数（total）都可以是动态符号；② 反向对全局表做累加：CPU 那份只有
-   一个块、串行扫抽行号，天然无竞争；昇腾那份一行可能落在不同核上，必须用原子加，绝不能用普通
-   写覆盖（先例：本包 add_ln 的列梯度同一口径）；③ 行号表必须是 int32 且连续——搬运的下标要
-   直接进地址算式，dtype 不符时入口层先转（不做静默截断）。
+【怎么做】① 前向按"一次一行"走：910B 份逐格按行号散读、标量落回出口（attempts/B 已证形态：
+   动态下标的散读界守卫由 codegen 自动生成），所以抽行数（picked）与表行数（total）都可以是
+   动态符号；② 反向把每行梯度加回原表：CPU 与昇腾两份都走"单块串行扫抽行号、逐笔退回"，
+   天然无竞争（昇腾原件的多块原子加方案被"原子符号无落点"挡下，见【为什么】）；③ 行号表必须
+   是 int32 且连续——下标要直接进地址算式，dtype 不符时入口层先转（不做静默截断）。
 【为什么】这一件看着像"顺手就能用 torch.index_select"，仍写成方言件的原因是它在训练链上：反向的
    scatter-add 若走 torch 就得把整张表拉回来再算，表宽时这是纯带宽浪费；内核里按行搬、按行加，
    一行的代价就是一行。被否方案：把 gather 并进下游的 gemm（只读需要的权重行）——省一次搬运，
    但会把"读出"和"乘加"两件事绑死，letter_rows 的下游并不只有 gemm，且会让 gemm 件的形状判据
-   多一条动态行号分支，得不偿失。昇腾侧原子加是否够快属未定项，云端 C1 若不稳就换"每核一份
-   偏量表 + 第二段归约"（本包 add_ln_asc 的注释里记了同一处置）。
+   多一条动态行号分支，得不偿失。昇腾侧反向走单块串行而非多块原子加：原子加在 910B 的发射符号
+   在 tilelang 模板与 CANN 8.5(dav-2201) 头文件里都没有落点（H 代理判决容器 grep 实测 0 命中），
+   且原件的 SIMT 向量块族在 910B 不存在（P1-4 根因缺口）；代价是反向占一个向量核，升级多块
+   （原子面补齐或两段归约+跨核事件）属开卡后性能项，见 reconcile/H_RESULT.md。
 """
 import tilelang
 
@@ -26,10 +28,8 @@ from ascend.kernels import ascend_env
 
 #: 行号表允许的位宽：内核只收 int32（入口层负责降级），int64 走 torch 回退时也能直接用
 ID_DTYPES = (torch.int32, torch.int64)
-#: 昇腾侧一次发射占用的块数与流水深度
-NUM_BLOCKS = 8
-VEC_THREADS = 64
-NUM_STAGES = 2
+#: 昇腾前向 gather 每块认领的行数（910B 按行块发射，非整除交给 `if row < picked` 守卫）
+GATHER_ROWS_PER_BLOCK = 8
 
 
 def gather_cpu_impl(Rows, Idx, Out, dim: int):
@@ -64,11 +64,16 @@ def gather_cpu_impl(Rows, Idx, Out, dim: int):
 
 
 def gather_asc_impl(Rows, Idx, Out, dim: int):
-    """昇腾前向正文：每块认领一段点名册，逐行经 UB 搬进搬出。
+    """昇腾前向正文（910B 形态）：逐格按行号散读、标量落出口，不走批量搬运。
 
-    白话：几台机器分着念点名册，念到谁就把那一整行原样搬到台面上再放进出口，绝不中途改写。
+    P1-4 合流口径（编译实证参照 attempts/B/b_readout_910b.py）：gather 的取数粒度是"按行号
+    散取行"，本就不是连续块，故逐格 GM 散读 + 逐格标量 store（动态下标的散读界守卫由
+    codegen 自动生成，越界读回 0，B 档 gen_readout.asc 实证）；顺手绕开 GAP-B 批量搬运件的
+    32B 粒度静默截断约束（compat_gap_B.md 约束段）。SIMT 向量块族在 910B 不存在，本件
+    全部是 T.serial 嵌套；fp32→fp32 同宽，不做任何位宽换算。
 
-    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，本地不实编）。
+    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，判决过程见
+        reconcile/H_RESULT.md 与 verify_letter_readout.py）。
     """
     import tilelang.ascend.language as T
 
@@ -78,22 +83,19 @@ def gather_asc_impl(Rows, Idx, Out, dim: int):
     @T.prim_func
     def gather_impl(Rows: T.Tensor((total, dim), "float32"), Idx: T.Tensor((picked,), "int32"),
                     Out: T.Tensor((picked, dim), "float32")):
-        """被追踪的那一层：抽多少行是活的，搬运按整行发起、起点直接取自册子。
+        """被追踪的那一层：抽多少行是活的（动态网格按块宽切），行宽是常量，散取起点直接取自册子。
 
-        白话：昇腾件这一份，册子上的行号直接当搬运起点用，一次搬一整行到新表对应的位置；
-        不够一轮的量就不发起，搬过来的数字原封不动，这一步连算术都不做。
+        白话：昇腾件这一份，每块认领一叠点名册的行，册子上的行号直接当地址偏移用，一格一格
+        原样抄进新表对应行；册子里重复点同一行就抄两遍，这一步连算术都不做。
         
         """
-        with T.Kernel(NUM_BLOCKS) as bx:
-            line_ub = T.alloc_shared((dim,), "float32")
-            T.annotate_buffer_versions({line_ub: NUM_STAGES})
-            for unit in T.Persistent([picked], NUM_BLOCKS, bx,
-                                     group_size=1, num_stages=NUM_STAGES):
-                i = unit * NUM_BLOCKS + bx
-                if i < picked:
-                    # 搬运不许顺带转类型，所以全程 fp32 同宽；行号直接进地址算式
-                    T.copy(Rows[Idx[i], 0], line_ub)
-                    T.copy(line_ub, Out[i, 0])
+        with T.Kernel(T.ceildiv(picked, GATHER_ROWS_PER_BLOCK)) as bx:
+            for i in T.serial(GATHER_ROWS_PER_BLOCK):
+                row = bx * GATHER_ROWS_PER_BLOCK + i
+                # 尾块守卫：末尾不够一整块认领的行不落全局（散读本身另有 codegen 界守卫）
+                if row < picked:
+                    for j in T.serial(dim):
+                        Out[row, j] = Rows[Idx[row], j]
 
     return gather_impl
 
@@ -130,11 +132,17 @@ def scatter_add_cpu_impl(GOut, Idx, GRows, dim: int):
 
 
 def scatter_add_asc_impl(GOut, Idx, GRows, dim: int):
-    """昇腾反向正文：多核并发回写同一张表，逐元素原子加（口径同 add_ln 的列梯度）。
+    """昇腾反向正文（910B 形态）：单块串行逐笔退回，逐格"读—加—落"。
 
-    白话：几个人同时往同一张大表上记数，每人每格都先看清楚再往上加，谁也不许把别人的数抹掉。
+    为什么是单块串行而不是多块原子加：910B(dav-2201) 面没有原子加载体——本方言逐元素原子加
+    的发射符号在 tilelang 模板与 CANN 8.5 头文件里都没有落点（H 代理判决容器 grep 实测 0 命中），
+    多块并发回写同一张表会互相盖账；单块串行与 scatter_add_cpu_impl 同式、天然无竞争，
+    "重复行号真加两次"的口径原样保留（入口层负责把 GRows 清零）。逐格标量读写 GM，
+    不走批量搬运（同 gather 件理由）。升级多块（原子面补齐或"每核一份偏量表 + 第二段归约
+    + 跨核事件"）属开卡后性能项，见 reconcile/H_RESULT.md。
 
-    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，本地不实编）。
+    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，判决过程见
+        reconcile/H_RESULT.md 与 verify_letter_readout.py）。
     """
     import tilelang.ascend.language as T
 
@@ -144,23 +152,18 @@ def scatter_add_asc_impl(GOut, Idx, GRows, dim: int):
     @T.prim_func
     def scatter_impl(GOut: T.Tensor((picked, dim), "float32"), Idx: T.Tensor((picked,), "int32"),
                      GRows: T.Tensor((total, dim), "float32")):
-        """被追踪的那一层：退回动作按行摊开，累加落在同一张公共表上。
+        """被追踪的那一层：退回动作由一个工人逐行走完，累加落在同一张公共表上。
 
-        白话：昇腾件这一份，每个工人手里拿几行往大表对应行上添，同一行被多个人添也各自都算数；
-        这一步只做加法，不比较、不覆盖、不做任何位宽换算。
+        白话：昇腾件这一份，一个工人按点名册逐行把手里的梯度退回大表：每格先看清、再加、再落，
+        同一行退回两次就是真的加两次，串行来记谁也不许盖掉谁；这一步只做加法，
+        不比较、不覆盖、不做任何位宽换算。
         
         """
-        with T.Kernel(NUM_BLOCKS) as bx:
-            g_ub = T.alloc_shared((dim,), "float32")
-            T.annotate_buffer_versions({g_ub: NUM_STAGES})
-            for unit in T.Persistent([picked], NUM_BLOCKS, bx,
-                                     group_size=1, num_stages=NUM_STAGES):
-                i = unit * NUM_BLOCKS + bx
-                if i < picked:
-                    T.copy(GOut[i, 0], g_ub)
-                    with T.SimtVF(threads=VEC_THREADS):
-                        for j in T.Parallel(dim):
-                            T.atomic_add(GRows[Idx[i], j], g_ub[j])
+        with T.Kernel(1) as bx:
+            # 目标表必须先清零：本件只做"加一笔"，不做"盖一笔"
+            for i in T.serial(picked):
+                for j in T.serial(dim):
+                    GRows[Idx[i], j] = GRows[Idx[i], j] + GOut[i, j]
 
     return scatter_impl
 

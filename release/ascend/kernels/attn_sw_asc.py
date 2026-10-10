@@ -4,21 +4,28 @@
 (..., heads, seq, dim) 的打包三路，返回与 q 同形、位宽 out_dtype 的输出；不可见的键（未来的、
 或太久以前的）权重严格为 0，绝不偷偷分走一点质量。`forward_weights` 只摊开"谁看了谁多少"，
 给测试与调试用，不进内核分发。
-【怎么做】① 一条查询块行做一遍在线（online）softmax：先算分数 `Q Kᵀ`（一次乘加），按可见性
+【怎么做】① 一条查询块行做一遍在线（online）softmax（CPU 件的路子）：先算分数 `Q Kᵀ`（一次乘加），按可见性
    把不可见格写成 NEG 哨兵，取本块行最大与历史行最大合并成新最大，旧最大与新最大之差取指数当
    "修正因子"，把已经攒下的分母和输出先乘这个因子，再累加本块的 `P V`——这样一次过就能得到
    与全量 softmax 逐位一致的结果，不需要把整张分数表存下来；② 分数取负 1e30 作哨兵后
    `exp(哨兵 - 新最大)` 会自然下溢成 0，但"新最大本身就是哨兵"（整块都被掩掉）时会算出
-   exp(0)=1，所以权重重算那一步**必须再判一次可见性**、显式写 0，这是本件最容易踩的坑；
-   ③ 网格上界只放常量（头数是编译期已知的），查询块号与键块号走动态串行/流水循环；尾块靠
-   "行号 < seq"守卫与搬运边界谓词解决，所以 seq 不必被块宽整除；④ 内核全程 fp32，升降位由
-   入口层负责。
+   exp(0)=1，所以**分块形态**的权重重算那一步必须再判一次可见性、显式写 0，这是本件最容易踩的
+   坑；昇腾那份是逐行形态，一行内窗内至少有一格真实分数（自己看得见自己），新最大不可能出自
+   哨兵，所以那一步补判在昇腾件里天然不需要（不是省掉了，是不存在）；③ 网格上界只放常量（头数
+   是编译期已知的），序列长度走动态符号：CPU 那份查询块号与键块号走串行流水，昇腾那份逐行按
+   NUM_BLOCKS 跨步领行；尾行靠"行号 < seq"的行程数上界解决，所以 seq 不必被块宽整除；④ 内核
+   全程 fp32，升降位由入口层负责。
 【为什么】算法只写一份、两个 target 同一口径：被否方案一"CPU 走两趟（先求最大再求和）"——
    分数要重算一遍乘加，多花的量级正好是最贵的部分，而且两趟与在线两版的语义会各自漂移；
    被否方案二"把分数表整块存下来"——(bm, seq) 在大 seq 下直接爆本地内存。scale 固定成
    `1/sqrt(dim)` 与换底系数合并进一次乘法的口径沿用 P1（`attn_sw_mps`），别的系数走普通写法。
-   昇腾那份与 CPU 那份同式，只是把"寄存器块"换成 UB/fragment、把 V 先转置成 (dim, bn) 再乘
-   （该后端 L1 乘加路只认 transpose_B=True）；向量化归约留到云端 C2 按实测改写（本地不实编）。
+   被否方案三（P1-4 合流时新增）：昇腾侧继续沿用 950 代际那套"UB/fragment + 线程级 SIMT 并行
+   掩码 + `T.gemm(transpose_B=True)` 两次乘加"的载体——该代际没有 SIMT 硬件模型，这一族原语在
+   patched 910B tilelang 下实测编不出（D-int1），而且本件的可见性判据是逐格的、乘加规模又小，
+   落到标量面反而是这台机器的正路：分数与权重各存一个窗宽的 UB 数组（**两个都被访问**，
+   避开 G-C8 的"命名空句柄"形态），行内两趟 softmax 走 `expf`（compat §11 软件件）＋原生
+   `max`/除法，出口逐格标量写回 GM。真机数值口径不变（attempts/E 的 stage 形态已实测
+   rel=1.41e-07，见 P1-1c）。
 """
 import tilelang
 
@@ -35,10 +42,9 @@ BLOCK_KV = 16
 NEG = -1.0e30
 #: 分母地板：一行一个键都没看见时兜住除零（正常情况下因果保证至少看得见自己）
 FLOOR = 1.0e-30
-#: 昇腾侧一次发射占用的块数与流水深度
+#: 昇腾侧一次发射占用的块数（每头再切 NUM_BLOCKS 份逐行领）。910B 标量面件没有"每块多少线程、
+#: 流水几级"这两维，原来的每块线程数与流水深度两个常量随 SIMT 载体一起撤掉，别留成假配置项。
 NUM_BLOCKS = 8
-VEC_THREADS = 64
-NUM_STAGES = 2
 
 
 def attn_sw_cpu_impl(Q, K, V, O, heads: int, dim: int, window: int, scale: float,
@@ -139,112 +145,84 @@ def attn_sw_cpu_impl(Q, K, V, O, heads: int, dim: int, window: int, scale: float
 
 def attn_sw_asc_impl(Q, K, V, O, heads: int, dim: int, window: int, scale: float,
                      bm: int, bn: int):
-    """昇腾正文：与 CPU 同式的在线 softmax，乘加一律走该后端认的 transpose_B=True 那条路。
+    """昇腾正文（910B / dav-2201 可编形态）：逐查询行的整窗两趟 softmax，分数与权重各占一格 UB。
 
-    白话：同一本账换一台机器算。这台机器的乘加只接受"第二个操作数倒过来摆"，所以 V 先在手边
-    倒一遍摆放；掩码、取指数、除分母这些逐格活交给向量核块里的一堆小工一起做。
+    白话：把一整摞问题按人头分给 NUM_BLOCKS 个工人，每人隔行领一条：先把这一行能看见的那一段
+    答案逐格打分存到手边（存不下的窗外格直接写哨兵），再在手边找最亮的一格、逐格取指数当权重
+    并累出分母，最后按权重把值加权、除以分母交货。
 
-    两处与 CPU 版的写法差异（都不是算法差异，是该后端的约束）：① `P V` 不能直接乘（L1 乘加路
-    只认 transpose_A=False/transpose_B=True），于是把 V 转置成 (dim, bn)，算 `Vᵀ Pᵀ` 得到
-    (dim, bm) 的输出转置，最后再倒回来写出；② 逐格活放 SimtVF，行内的最大/求和两趟仍按串行写，
-    向量化归约留待云端 C2 依实测改写（先例见 TileKernels 的 SIMD 件）。
+    四条 910B 方言纪律（P1-4 合流，凭据 attempts/E/e_attn_sw_910b.py + RESULT.md §0 + P1-1c
+    真机 rel=1.41e-07 的 stage 形态）：
+      * 载体只有 `T.Kernel` + `T.Vector()` + 纯 `T.serial`；不碰 950 那族线程级 SIMT 并行载体，
+        也不用 `T.gemm`/`T.Persistent`/流水搬运——该代际无 SIMT 硬件模型，那些件实测编不出
+        （D-int1）。分数就是窗长个向量的内积，标量面逐格乘加才是这台机器的正路，V 也不必
+        先转置再乘（那条 transpose_B=True 的规矩属于 L1 乘加路，本件不走它）。
+      * 数学件只吃三样：四则、`T.max`、`T.exp`→`expf`（compat §11 软件件，定标
+        max_rel_err=1.103e-06）；不碰 log/sqrt/rsqrt/三角（G-E1：标量面连 sinf/cosf 都没有）。
+      * 可见性口径与 CPU 件、与 `_eager`/`_mask` 逐字一致：查询行 i 看得见键
+        kk ∈ [max(0, i-window+1), i]，两个方向（未来、太久以前）都拦，窗外权重**严格**为 0——
+        靠"哨兵减真实最大 → expf 下溢钳位成 0"结构性保证，不是近似。逐行形态下行最大必出自
+        窗内（至少看得见自己），所以生产分块件里"重算权重再判一次可见性"的补判在这里不存在。
+      * UB 用两个都被访问的窗宽数组（sc_ub/ps_ub），刻意避开 G-C8 的"被访问 shared 恰好 1 个
+        ⇒ 命名空句柄"形态；其余暂存走 `T.alloc_var`。
 
-    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，本地不实编）。
+    两处与其它件不同的写法，都是本接口的既有约束、不是算法差异：① 序列长度是动态符号，故每
+    （头，核）按 `NUM_BLOCKS` 跨步领行，行程数 `ceildiv(seq - core, NUM_BLOCKS)` 把尾行天然挡在
+    界外；② 窗宽是编译期常量而 seq 是活的，`window > seq` 时循环上界会越过最后一行，所以取数
+    下标统一夹到 `min(lo + j, seq - 1)`：被夹到的那一侧本来就被哨兵判为不可见、值不参与结果，
+    夹位只把非法地址变成合法地址，数值逐位不变。`bm`/`bn` 在本方言下不再参与寻址（逐行形态），
+    留形参只为 `plan` 的 kwargs 与缓存键不动。
+
+    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，P1-4 起本地实编判 .o）。
     """
     import tilelang.ascend.language as T
 
     seq = T.dynamic("seq")
+    win = int(window)          # 窗宽是编译期常量（由 plan 带进来的 python int）
 
     @T.prim_func
     def attn_impl(Q: T.Tensor((heads, seq, dim), "float32"), K: T.Tensor((heads, seq, dim), "float32"),
                   V: T.Tensor((heads, seq, dim), "float32"), O: T.Tensor((heads, seq, dim), "float32")):
-        """被追踪的那一层：查询块摊给多个工人，键值沿序列方向流水搬进来。
+        """被追踪的那一层：头数与每头宽度是常量，序列长度走动态维，窗口写死在比较里。
 
-        白话：昇腾件这一份，每块查询自己从前往后扫能看见的那一段键值，边搬边把这一段的分数与
-        已有结果合起来；这台机器的乘加只接受"第二个操作数倒过来摆"，所以值那一摞先在手边
-        倒一遍，算完的输出再倒回来写出去。
-        
+        白话：昇腾件这一份，每个工人隔行领一条查询，逐格给自己看得见的那一段打分、找最亮、
+        取指数、按权重把值合起来再除一下；看不见的连份额都不给。
         """
         with T.Kernel(heads * NUM_BLOCKS) as bx:
             hh = T.floordiv(bx, NUM_BLOCKS)
             core = bx % NUM_BLOCKS
-            Q_ub = T.alloc_shared((bm, dim), "float32")
-            K_ub = T.alloc_shared((bn, dim), "float32")
-            V_ub = T.alloc_shared((bn, dim), "float32")
-            Vt_ub = T.alloc_shared((dim, bn), "float32")
-            Sc_ub = T.alloc_shared((bm, bn), "float32")
-            Ps_ub = T.alloc_shared((bm, bn), "float32")
-            Ot_ub = T.alloc_shared((dim, bm), "float32")
-            stat_ub = T.alloc_shared((bm, 2), "float32")
-            blkmax = T.alloc_var("float32")
-            vnew = T.alloc_var("float32")
-            vcorr = T.alloc_var("float32")
-            vsum = T.alloc_var("float32")
-            T.annotate_buffer_versions({Q_ub: NUM_STAGES, K_ub: NUM_STAGES, V_ub: NUM_STAGES})
-            nqb = T.ceildiv(seq, bm)
-            for unit in T.Persistent([nqb], NUM_BLOCKS, core,
-                                     group_size=1, num_stages=NUM_STAGES):
-                q_lo = unit * bm
-                T.copy(Q[hh, q_lo, 0], Q_ub)
-                with T.SimtVF(threads=VEC_THREADS):
-                    for i in T.Parallel(bm):
-                        stat_ub[i, 0] = -1.0e30
-                        stat_ub[i, 1] = 0.0
-                    for i, c in T.Parallel(bm, dim):
-                        Ot_ub[c, i] = 0.0
-                kb0 = T.floordiv(T.max(0, q_lo + 1 - window), bn)
-                kb1 = T.floordiv(T.min(seq - 1, q_lo + bm - 1), bn) + 1
-                for kb in T.serial(kb1 - kb0):
-                    k_lo = (kb0 + kb) * bn
-                    T.copy(K[hh, k_lo, 0], K_ub)
-                    T.copy(V[hh, k_lo, 0], V_ub)
-                    with T.SimtVF(threads=VEC_THREADS):
-                        for c, j in T.Parallel(dim, bn):
-                            Vt_ub[c, j] = V_ub[j, c]
-                    T.clear(Sc_ub)
-                    T.gemm(Q_ub, K_ub, Sc_ub, transpose_B=True)
-                    # 本块行最大 → 新最大 → 修正因子（先串行，云端 C2 再向量化）
-                    for i in T.serial(bm):
-                        i0 = q_lo + i
-                        blkmax = -1.0e30
-                        for j in T.serial(bn):
-                            kk = k_lo + j
-                            if (i0 >= kk) & (i0 - kk < window) & (kk < seq):
-                                Sc_ub[i, j] = Sc_ub[i, j] * scale
-                                if Sc_ub[i, j] > blkmax:
-                                    blkmax = Sc_ub[i, j]
-                            else:
-                                Sc_ub[i, j] = -1.0e30
-                        vnew = stat_ub[i, 0]
-                        if blkmax > vnew:
-                            vnew = blkmax
-                        vcorr = T.exp(stat_ub[i, 0] - vnew)
-                        stat_ub[i, 0] = vnew
-                        stat_ub[i, 1] = stat_ub[i, 1] * vcorr
+            sc_ub = T.alloc_shared((win,), "float32")   # 本行整窗分数（含窗外哨兵）
+            ps_ub = T.alloc_shared((win,), "float32")   # 本行整窗权重（窗外自然下溢成 0）
+            m = T.alloc_var("float32", T.float32(0.0))
+            l = T.alloc_var("float32", T.float32(0.0))
+            acc = T.alloc_var("float32", T.float32(0.0))
+            with T.Vector():
+                for rr in T.serial(T.ceildiv(seq - core, NUM_BLOCKS)):
+                    i = core + rr * NUM_BLOCKS           # 本行查询位置（一定 < seq）
+                    lo = T.max(i - win + 1, 0)           # 可见窗左端（因果 + 滑窗，两头都拦）
+                    n = i - lo + 1                       # 可见键数 ∈ [1, win]
+                    # 趟1：整窗打分进 UB，窗外（j >= n）写哨兵；下标夹到 seq-1 只影响哨兵格
+                    for j in T.serial(win):
+                        kk = T.min(lo + j, seq - 1)
+                        acc = T.float32(0.0)
                         for c in T.serial(dim):
-                            Ot_ub[c, i] = Ot_ub[c, i] * vcorr
-                    # 第二遍扫本块：算权重并累计分母。仍走串行——不可见格必须显式写 0
-                    # （哨兵减哨兵等于 0，指数就成 1 了），而行内求和用原子加打在 UB 上
-                    # 既不划算也无先例，串行累加最稳（向量化留待云端 C2）
-                    for i in T.serial(bm):
-                        i0 = q_lo + i
-                        vsum = 0.0
-                        for j in T.serial(bn):
-                            kk = k_lo + j
-                            if (i0 >= kk) & (i0 - kk < window) & (kk < seq):
-                                Ps_ub[i, j] = T.exp(Sc_ub[i, j] - stat_ub[i, 0])
-                                vsum = vsum + Ps_ub[i, j]
-                            else:
-                                Ps_ub[i, j] = 0.0
-                        stat_ub[i, 1] = stat_ub[i, 1] + vsum
-                    # V 先转置再乘：这条乘加路只认 transpose_B=True，出口是 (dim, bm) 的转置
-                    T.gemm(Vt_ub, Ps_ub, Ot_ub, transpose_B=True)
-                with T.SimtVF(threads=VEC_THREADS):
-                    for i, c in T.Parallel(bm, dim):
-                        i0 = q_lo + i
-                        if i0 < seq:
-                            # 并行区里不引共享标量临时量，除零直接就地用 max(分母, 地板) 兜住
-                            O[hh, i0, c] = Ot_ub[c, i] / T.max(stat_ub[i, 1], FLOOR)
+                            acc = acc + Q[hh, i, c] * K[hh, kk, c]
+                        sc_ub[j] = T.if_then_else(j < n, scale * acc, T.float32(NEG))
+                    # 趟2：行最大（哨兵不会赢：窗内至少有一格真实分数）
+                    m = T.float32(NEG)
+                    for j in T.serial(win):
+                        m = T.max(m, sc_ub[j])
+                    # 趟3：权重与分母（哨兵侧 expf(NEG - 真实最大) 下溢成 0，自见格自带 exp(0)=1）
+                    l = T.float32(0.0)
+                    for j in T.serial(win):
+                        ps_ub[j] = T.exp(sc_ub[j] - m)
+                        l = l + ps_ub[j]
+                    # 趟4：按权重合值并归一；分母仍按接口的地板兜一下（与 CPU 件同口径）
+                    for c in T.serial(dim):
+                        acc = T.float32(0.0)
+                        for j in T.serial(win):
+                            acc = acc + ps_ub[j] * V[hh, T.min(lo + j, seq - 1), c]
+                        O[hh, i, c] = acc / T.max(l, T.float32(FLOOR))
 
     return attn_impl
 

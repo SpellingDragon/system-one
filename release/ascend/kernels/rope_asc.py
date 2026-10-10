@@ -6,16 +6,22 @@
 但把横向抄（sin）取负——这就是逆旋转，不需要第二个内核。
 【怎么做】① 旋转口径是"前后半"（split-half）：前半减后半乘 sin、后半加前半乘 sin；
    ② token 数是动态符号，但网格上界必须是编译期常量（CPU(c) 后端实测：把动态维写进网格就一次
-   都不发射），所以两份正文都用"常量网格 + 动态串行/流水循环"；CPU 那份每块串行扫一段 token，
-   昇腾那份固定 NUM_BLOCKS 个向量核块、token 段落在 T.Pipelined 上；③ 昇腾侧先把一行的
-   q/k 两段搬进 UB，在 SimtVF 里用 fp32 算、按原 dtype 逐元素写回 UB，再整块搬出——刻意不用
-   T.copy 跨位宽搬（该后端 DMA 不许顺带转类型），也刻意不引入新的中间全局缓冲（就地语义）。
+   都不发射），所以两份正文都用"常量网格 + 动态串行循环"：CPU 那份一个块串行扫全部 token，
+   昇腾那份 NUM_BLOCKS 个向量核块按跨步领行；③ 昇腾侧是**纯 AIV 标量面**（P1-4 合流后的 910B
+   可编形态）：`T.Kernel(NUM_BLOCKS)` + `T.Vector()` + 纯 `T.serial`，一格一格地从全局直接读、
+   算、写回，零整块搬运、零 `alloc_shared`、零 UB 参与；角度一律从入口带进来的 cos/sin 表里
+   直读，绝不在核内自算三角函数（910B 标量面根本没有 sinf/cosf 这两个件，见 attempts/E G-E1），
+   也绝不引入新的中间全局缓冲（就地语义）。
 【为什么】反向复用前向件是数学决定的：2x2 旋转矩阵的逆就是把角度取负，另开一模只会多一份要
 同步的代码。被否方案一：为反向单独写"转置旋转"内核——两份额外的方言代码换不到任何收益；
 被否方案二：把 qkv 复制一份再转（非就地）——P1 的调用方（autograd 的 _RopeFn）依赖就地语义
 拿回同一个对象，改了会让上游的保存/引用全部错位；连续性判据（plan 里必须 contiguous）就是为
 这条语义守门的：一旦对方递来的是 contiguous() 现场复制的临时块，转完原对象纹丝不动，"就地"
-会静默失效。
+会静默失效。被否方案三（P1-4 合流时新增）：昇腾侧继续沿用 950 代际那套"整行搬进 UB → 线程级
+并行转 → 整块搬出"的 SIMT 向量载体——该代际没有 SIMT 硬件模型，这一族原语在 patched 910B
+tilelang 下实测编不出（D-int1），标量面逐格读写才是这台机器真正可用的件；它还顺带少了一件事：
+"先把 x1/x2 各抄进手心再写回"的顺序由标量赋值天然保证，不再依赖向量件里"同一趟前后半互不
+污染"这种隐性纪律。
 """
 import tilelang
 
@@ -27,10 +33,9 @@ from ascend.kernels import ascend_env
 
 #: 打包布局里被旋转的槽位：0=查询、1=键；2=值 永远不动（与 P1 rope_mps.ROTATE_SLOTS 同值）
 ROTATE_SLOTS = (0, 1)
-#: 昇腾侧一次发射占用的向量核块数与流水深度
+#: 昇腾侧一次发射占用的向量核块数。910B 标量面件没有"每块多少线程、流水几级"这两维，
+#: 原来的每块线程数与流水深度两个常量随 SIMT 载体一起撤掉，别留成假的配置项。
 NUM_BLOCKS = 8
-VEC_THREADS = 64
-NUM_STAGES = 2
 
 
 def rope_cpu_impl(QKV, Cos, Sin, heads: int, dim: int, slots: int, sign: int):
@@ -71,18 +76,30 @@ def rope_cpu_impl(QKV, Cos, Sin, heads: int, dim: int, slots: int, sign: int):
 
 
 def rope_asc_impl(QKV, Cos, Sin, heads: int, dim: int, slots: int, sign: int):
-    """昇腾方言正文：UB 放一个 token 的两段（q、k），SimtVF 上做 fp32 旋转再原地搬出。
+    """昇腾方言正文（910B / dav-2201 可编形态）：纯 AIV 标量面，按跨步领 token 行、就地转。
 
-    白话：一次只把一小片材料搬到手边，按抄表转一转，转完立刻放回原来的位置；写回用的是
-    逐元素赋值而不是整块搬运，因为这台机器不允许搬运的时候顺手改记法。
+    白话：八个工人各领每隔八个的一本记录；翻到某一页某一头，先把前半后半各抄进手心（x1、x2），
+    再照两张小抄算出新值原地放回；第三摞连碰都不碰。sign 为 -1 就是"横向抄倒着念"。
 
-    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，本地不实编）。
+    四条 910B 方言纪律（P1-4 合流，凭据 attempts/E/e_rope_910b.py + RESULT.md + G-E1）：
+      * 载体只有 `T.Kernel` + `T.Vector()` + 纯 `T.serial`；不碰 950 那族线程级 SIMT 并行载体，
+        也不用整块搬运与流水循环——该代际无 SIMT 硬件模型，那些件实测编不出（D-int1）。
+      * 角度**只从 cos/sin 表标量直读**：910B 标量面缺 `sinf/cosf`（G-E1），而表加载本就是
+        本接口的既有契约（入口就收两张表），所以 rope 本体零 transcendental、零新增 compat。
+      * 零 `alloc_shared`（G-C8：单死缓冲会落成命名空句柄），暂存全走 `T.alloc_var`。
+      * 就地安全由标量顺序天然保证：两次读（x1、x2）都在两次写之前，不存在"写前半污染后半"
+        的自噬面——这也是 attempts/E 那份"出地（另开一张 O 表）"件能收回就地口径的原因。
+
+    领行方式：token 轴是动态符号，每核从 `bx` 起按 `NUM_BLOCKS` 跨步走，行程数写成
+    `ceildiv(tokens - bx, NUM_BLOCKS)`；tokens>=1 时被除数恒正（最小 1-8+7=0），尾行天然落在
+    界外，不需要再补 `if row < tokens` 守卫（发射体见 `((tokens + 7) - block_idx) >> 3`）。
+
+    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，P1-4 起本地实编判 .o）。
     """
     import tilelang.ascend.language as T
 
     tokens = T.dynamic("tokens")
     half = dim // 2
-    width = slots * heads * dim  # 一次搬进 UB 的元素数（q、k 两段）
 
     @T.prim_func
     def rope_impl(QKV: T.Tensor((tokens, 3, heads, dim), "float32"),
@@ -90,29 +107,28 @@ def rope_asc_impl(QKV, Cos, Sin, heads: int, dim: int, slots: int, sign: int):
                   Sin: T.Tensor((tokens, half), "float32")):
         """被追踪的那一层：头数、每头宽度、转几摞、正转还是反转都是常量，只有条数是活的。
 
-        白话：昇腾件这一份，多个工人各领一段记录，同一条转法照着两张小抄做——前半减去后半乘
-        纵向抄，后半加上前半乘横向抄，算完原地放回；第三摞连碰都不碰。
-        
+        白话：昇腾件这一份，多个工人按跨步各领一段记录，同一条转法照着两张小抄做——前半减去
+        后半乘纵向抄，后半加上前半乘横向抄，算完原地放回；第三摞连碰都不碰。
         """
         with T.Kernel(NUM_BLOCKS) as bx:
-            ub = T.alloc_shared((width,), "float32")
-            c_ub = T.alloc_shared((half,), "float32")
-            s_ub = T.alloc_shared((half,), "float32")
-            T.annotate_buffer_versions({ub: NUM_STAGES})
-            for t in T.Pipelined(T.ceildiv(tokens, NUM_BLOCKS), num_stages=NUM_STAGES):
-                row = t * NUM_BLOCKS + bx
-                T.copy(QKV[row, 0, 0, 0], ub)
-                T.copy(Cos[row, 0], c_ub)
-                T.copy(Sin[row, 0], s_ub)
-                with T.SimtVF(threads=VEC_THREADS):
-                    for s, hh, j in T.Parallel(slots, heads, half):
-                        base = (s * heads + hh) * dim
-                        x1 = ub[base + j]
-                        x2 = ub[base + j + half]
-                        sn = sign * s_ub[j]
-                        ub[base + j] = x1 * c_ub[j] - x2 * sn
-                        ub[base + j + half] = x2 * c_ub[j] + x1 * sn
-                T.copy(ub, QKV[row, 0, 0, 0])
+            x1 = T.alloc_var("float32", T.float32(0.0))
+            x2 = T.alloc_var("float32", T.float32(0.0))
+            c = T.alloc_var("float32", T.float32(0.0))
+            sn = T.alloc_var("float32", T.float32(0.0))
+            with T.Vector():
+                for r in T.serial(T.ceildiv(tokens - bx, NUM_BLOCKS)):
+                    t = bx + r * NUM_BLOCKS
+                    for s in T.serial(slots):
+                        for hh in T.serial(heads):
+                            for j in T.serial(half):
+                                x1 = QKV[t, s, hh, j]
+                                x2 = QKV[t, s, hh, j + half]
+                                c = Cos[t, j]
+                                sn = Sin[t, j]
+                                if sign < 0:
+                                    sn = T.float32(0.0) - sn
+                                QKV[t, s, hh, j] = x1 * c - x2 * sn
+                                QKV[t, s, hh, j + half] = x2 * c + x1 * sn
 
     return rope_impl
 
@@ -184,6 +200,15 @@ def forward(qkv: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
         if spec is not None and _run(q32, cos, sin, spec):
             if q32.data_ptr() != qkv.data_ptr():
                 qkv.copy_(q32.to(qkv.dtype))
+            return qkv
+    elif (name == ascend_env.TARGET_ASCEND
+          and ascend_env.active_backend(name, qkv.device) == ascend_env.TILELANG
+          and qkv.dtype == torch.float32 and cos.dtype == torch.float32 and sin.dtype == torch.float32):
+        # P1-4 合流（路由修复）：target=ascend 现走内核；此前 forward 无 ascend 分支，
+        # 卡上会永落 _eager（内核白编）。限 fp32：ascend 正文声明 fp32，非 fp32 落 _eager 以免
+        # 静默错数据（编译门对位宽错配是瞎的，见 D-int 侦察）；fp16 rope 内核化列为后续。
+        spec = _plan(qkv, cos, sin, slots, 1, name)
+        if spec is not None and _run(qkv, cos, sin, spec):
             return qkv
     return _eager(qkv, cos, sin, rotate_slots, 1)
 

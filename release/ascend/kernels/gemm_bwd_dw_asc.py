@@ -11,13 +11,23 @@
    而非 tilelang.jit——后者在本件这种写法下只回 Kernel 不执行，且它的 call-form 缓存拿张量做
    等值比较，换一批新张量就抛错；④ 累加器 (bn,bk) 与出口都 fp32，降位由入口层负责。
 【为什么】昇腾那份不能照抄 CPU 的 transpose_A=True：L1 输入的乘加路只认"左不翻、右翻"（手册与
-   TileKernels 的 GEMM 件同口径），所以改算等价的转置式 dWᵀ = Aᵀ @ dY，累加器形状 (bk,bn)，
-   收尾在 UB 上做一次行列转置写回 (N,K)——宁可在收尾多一次转置，也不违反后端约束。被否方案一：
-   把 token 数做成编译期常量、换批重编——训练里批形状多变，一次编译秒级开销直接吞掉收益（P1 探针
-   实测约 2.4s）；被否方案二：把 m 写进网格——CPU(c) 后端不认动态网格上界，实测一次都不发射、
-   出口保持全零，属"跑得通但数是零"的静默错；被否方案三：出口降位宽在内核里做——昇腾 DMA 搬运
-   不许顺带转类型，且累加精度纪律要求全程 fp32。
-云端待验清单（本地不实编）：UB 转置写回的索引式与 bank 冲突、tc 取值、fp32 操作数是否需 set_hf32_mode。
+   TileKernels 的 GEMM 件同口径），`gemm_mad.py` 对 shared.l1 路直接 assert `not trans_A and
+   trans_B`，dW 天然 trans_A（TN）正面撞墙。**910B 合流（P1-4）走 l0tr 主案**：把转置下移到
+   DMA 装填——L1 里存 dY/X 的自然 (token块, 列) 布局，装进 L0A/L0B 时 `transpose=True` 转置成
+   NT 要求的 (N块,token块)/(K块,token块)，mad 永远吃 NT；累加器 (BN,BK) 与出口同朝向，
+   L0C→GM 直出（A-4 已落 asc_copy_l0c2gm），不在 UB 上二次重排（910B 无 SimtVF/T.Parallel，
+   且 L0C→UB 硬件不支持）。等价于转置恒等式 dW=(Aᵀ@dY)ᵀ，但把"再转置"消灭在入口 DMA。
+   被否方案一：照 950 载体用 SimtVF 在 UB 做转置写回——910B 方言无此构造，COMPILE-FAIL；
+   被否方案二：madta（装填不转置、mad 直接吃 MN-major A）——GM→L0 无 DMA 面，codegen 退化
+   成标量解引用 `__ca__`，命中 `only __ubuf__/__gm__/local can be dereferenced`（卷宗 G-D2）；
+   被否方案三：ntt（GM→L1 dn2nz 转置载入 + shared.l1 融合模板）——编译绿但 compat 的
+   asc_copy_gm2l1_dn2nz 只是 nd2nz 同名别名 stub（VERIFY V1），编译绿≠数值绿，前波已裁不投；
+   被否方案四：token 数做编译期常量换批重编——训练批形多变，秒级重编吞掉收益。
+   ⚠ 已知 §12 缺口（本波实测）：动态 m 下末个 token 块不满 TC(=16) 行时，codegen 会在
+   asc_copy_gm2l1_nd2nz 之后发射 `asc_fill_l1` 补 L1 尾区，而 trunk port910b_compat.h 无此件
+   → `use of undeclared identifier 'asc_fill_l1'`。静态且 m 整除 TC 不触发（本容器实测原版
+   d_dw PASS）。DSL 形态正确，唯此件挡编译；补件需求见 reconcile/compat_patch_K.h，由 §12 owner 合。
+云端待验清单（本地不实编）：asc_fill_l1 补齐后的 cube 数值 rel、tc 取值、fp32 操作数是否需 set_hf32_mode。
 """
 import tilelang
 
@@ -31,7 +41,7 @@ from ascend.kernels import ascend_env
 BLOCK_TC = 16
 #: N/K 轴块宽候选（沿用前向阶梯）；都不能整除则表达不了，交回入口层回退
 BLOCK_LADDER = (64, 32, 16)
-#: 昇腾侧一次发射占用的向量核块数与流水深度（与 gemm_asc 同一口径）
+#: 昇腾侧一次发射占用的立方体核块数与流水深度（与 gemm_asc 同一口径）
 NUM_BLOCKS = 8
 VEC_THREADS = 64
 NUM_STAGES = 2
@@ -74,17 +84,22 @@ def dw_cpu_impl(dY, A, GW, n: int, k: int, tc: int, bn: int, bk: int):
 
 
 def dw_asc_impl(dY, A, GW, n: int, k: int, tc: int, bn: int, bk: int):
-    """昇腾方言正文：改算转置式 dWᵀ = Aᵀ @ dY（操作数方向符合 L1 乘加路），UB 上转置写回。
+    """昇腾 910B 方言正文（l0tr 主案）：dW=dYᵀ@A 的转置下移到 L1→L0 装填，mad 恒吃 NT。
 
-    白话：卡上的乘加单元只接受"左边不翻、右边翻"这一种摆法，那就把要算的表先翻个面来算，
-    算完在中间小仓库里把行列调回头，再按原方向放回大表格。
+    白话：卡上的乘加单元只接受"左边不翻、右边翻"这一种摆法。那就把要乘的两片按自然方向先
+    搬进近便仓库（L1），临装进乘加寄存器（L0A/L0B）时才把它们竖起来（转置 DMA），账本
+    (BN,BK) 与出口同朝向，算完整块直出到大表格——全程不在公共小格子（UB）上二次翻面，
+    绕开 910B "立方体累加搬不回 UB" 的硬件限制。
 
-    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，本地不实编）。
+    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")）。
     """
     import tilelang.ascend.language as T
 
     m = T.dynamic("m")
     nb, nk = n // bn, k // bk
+    tiles = nb * nk
+    blocks = min(tiles, NUM_BLOCKS)
+    iters = (tiles + blocks - 1) // blocks
 
     @T.prim_func
     def dw_impl(dY: T.Tensor((m, n), "float32"), A: T.Tensor((m, k), "float32"),
@@ -93,31 +108,26 @@ def dw_asc_impl(dY, A, GW, n: int, k: int, tc: int, bn: int, bk: int):
 
         白话：昇腾件这一份，一张大账本按列切成几页，每页自己把这一批的数一笔笔记上去；页数与
         每页多宽都定死，来多少行就记多少轮，不会把别页的数字串了行。
-        
         """
-        with T.Kernel(NUM_BLOCKS) as bx:
-            a_l1 = T.alloc_l1((tc, bk), "float32")
-            d_l1 = T.alloc_l1((tc, bn), "float32")
-            ct_l0c = T.alloc_l0c((bk, bn), "float32")
-            ct_ub = T.alloc_shared((bk, bn), "float32")
-            g_ub = T.alloc_shared((bn, bk), "float32")
-            T.annotate_buffer_versions({ct_ub: NUM_STAGES})
-            for blk in T.serial(T.ceildiv(nb * nk, NUM_BLOCKS)):
-                # 一个向量核块领一批出口方格；bx 决定这块算哪一格
-                cell = blk * NUM_BLOCKS + bx
-                iy = cell // nk
-                ix = cell % nk
-                T.clear(ct_l0c)
-                for to in T.Pipelined(T.ceildiv(m, tc), num_stages=NUM_STAGES):
-                    T.copy(A[to * tc, ix * bk], a_l1)
-                    T.copy(dY[to * tc, iy * bn], d_l1)
-                    # 方向约束：左操作数不翻、右操作数翻，所以这里落在 (K,N) 那一面
-                    T.gemm(a_l1, d_l1, ct_l0c, transpose_B=True)
-                T.copy(ct_l0c, ct_ub)
-                with T.SimtVF(threads=VEC_THREADS):
-                    for i, j in T.Parallel(bk, bn):
-                        g_ub[j, i] = ct_ub[i, j]
-                T.copy(g_ub, GW[iy * bn, ix * bk])
+        with T.Kernel(blocks) as bid:
+            dy_l1 = T.alloc_l1((tc, bn), "float32")   # L1 自然 (token, n)
+            x_l1 = T.alloc_l1((tc, bk), "float32")    # L1 自然 (token, k)
+            a_l0 = T.alloc_l0a((bn, tc), "float32")   # NT 要求 (M=BN, K=TC)
+            b_l0 = T.alloc_l0b((bk, tc), "float32")   # NT 要求 (N=BK, K=TC)
+            acc = T.alloc_l0c((bn, bk), "float32")
+            with T.Cube():
+                for it in T.serial(iters):
+                    tid = bid + it * blocks
+                    n_tile = tid // nk
+                    k_tile = tid % nk
+                    # 归约轴 = 动态 token 数 m；末块不满 tc 触发 §12 asc_fill_l1（见模块 docstring）
+                    for kt in T.serial(T.ceildiv(m, tc)):
+                        T.copy(dY[kt * tc, n_tile * bn], dy_l1)
+                        T.copy(A[kt * tc, k_tile * bk], x_l1)
+                        T.copy(dy_l1, a_l0, transpose=True)   # 转置下移到 L1→L0 装填
+                        T.copy(x_l1, b_l0, transpose=True)
+                        T.gemm(a_l0, b_l0, acc, transpose_B=True, clear_accum=kt == 0)
+                    T.copy(acc, GW[n_tile * bn, k_tile * bk])  # L0C→GM 直出，出口自然朝向
 
     return dw_impl
 

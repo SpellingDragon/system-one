@@ -1,8 +1,9 @@
 """gemm 方言件：C = act(A @ Wᵀ + bias)，行数 m 是动态符号，一次编译服务任意批大小。
 
-【做什么】同一套乘加口径写两份方言正文：ascend 那份按昇腾的存储层级（L1 进操作数、L0C 做累加、
-UB 上收尾）摆；cpu 那份按本机真跑得通的路径摆（列块静态网格 + 行块动态串行循环）。两份都由
-plan() 判形状、run() 负责取编译产物并就地写出口，位宽转换不在方言里做（出口一律 fp32）。
+【做什么】同一套乘加口径写两份方言正文：ascend 那份按 910B 立方体单元（Cube 单工做主乘加、
+UB 放累加、标量 serial 收尾）摆；cpu 那份按本机真跑得通的路径摆（列块静态网格 + 行块动态
+串行循环）。两份都由 plan() 判形状、run() 负责取编译产物并就地写出口，位宽转换不在方言里做
+（出口一律 fp32）。
 【怎么做】① 件形是"张量参数在前、整数常量在后"的工厂函数；run() 现场调用工厂拿到追踪好的
    PrimFunc，再交给 tilelang.compile 出产物并按形状键缓存。刻意**不用 tilelang.jit**：这种写法
    属 lazy 风格，jit(...) 只回 Kernel 对象不执行（实测出口保持全零），而它的 call-form 缓存拿
@@ -12,9 +13,9 @@ plan() 判形状、run() 负责取编译产物并就地写出口，位宽转换�
    字符串，只在注解里出现的形状常量就没有闭包单元，编译期报 NameError: name 'n' is not defined。
    ③ 动态维 m 的去处按后端分：CPU(c) 后端**网格上界必须是编译期常量**，把 m 写进网格会一次都不
    发射（实测 C 全零、误差恰好等于 |A@Wᵀ| 最大值），故 CPU 侧用"列块静态网格 + 行块
-   T.serial(ceildiv(m, bm)) 动态循环"；昇腾侧同样只用常量网格（固定 NUM_BLOCKS 个向量核块），
-   m 落在 T.Pipelined 的循环界上。④ 收尾（加偏置、按需压负为零）在累加缓冲上逐元素做，最后整块
-   写回；尾块越界交给 T.copy 的自动边界谓词（实测 m=8 对 bm=16 误差为 0，不需手写守卫）。
+   T.serial(ceildiv(m, bm)) 动态循环"；昇腾侧同样只用常量网格（固定 NUM_BLOCKS 个立方体核块），
+   m 落在 T.serial 的行块循环上界。④ 收尾（加偏置、按需压负为零）在 UB 累加缓冲上逐元素做，
+   最后整块写回；尾块越界交给 T.copy 的自动边界谓词（实测 m=8 对 bm=16 误差为 0，不需手写守卫）。
 【为什么】三处口径是被约束逼出来的，不是风格：(a) 权重按 (N,K) 存、必须 transpose_B=True——昇腾
    L1 输入的乘加路只认这个方向（手册与 TileKernels 的 GEMM 件都这么摆）；(b) 出口不在方言里降
    位宽——昇腾 DMA 搬运不允许顺带转类型（tilelang/ascend/analysis/vf_checker.py 明确
@@ -23,9 +24,12 @@ plan() 判形状、run() 负责取编译产物并就地写出口，位宽转换�
    fp32 出口、入口层降位；(c) 被否方案：CPU 侧也用 T.Parallel 收尾——实测本方言的并行块索引
    local 缓存会被语义检查拒绝（"Local buffer ... is thread-private"），serial 才成立；(d) 被否
    方案：CPU 侧照 P1 的 Metal 件那样把 m 写进网格——Metal 认动态网格，c 后端不认，照搬会得到
-   "跑得通、数是零"的静默错，比直接报错更危险，故按后端拆开摆法。
-云端待验清单（本地不实编）：fp32 操作数走 Cube 是否需要 set_hf32_mode、Pipelined 该套在行块层还是
-K 分块层、SimtVF 的 threads 与 UB 容量匹配、截断用 T.max 还是显式比较。
+   "跑得通、数是零"的静默错，比直接报错更危险，故按后端拆开摆法；(e) 910B 侧（P1-4 合流）：
+   早先照 950 载体写的 SimtVF/T.Parallel 收尾在 patched 910B tilelang 下 COMPILE-FAIL（方言里
+   根本没有 SimtVF/Parallel），且累加若放 L0C 则搬不回 UB——910B 硬件 fixpipe L0C→UB 不支持
+   （port910b 卷宗 b10：FixpipeL0C2UBImpl=assert(false)）。故把操作数与累加都落到 UB(shared)，
+   主乘加走 Cube 单工，收尾标量 T.serial，fp32 的 T.clear 也被首轮 clear_accum 取代（fp32 T.clear
+   在 UB 上生成坏 float2 store）。云端待验：cube 面单位/V1-V3、清账口径的数值 rel（本波只判编译）。
 """
 import tilelang
 
@@ -43,7 +47,7 @@ ACT_MODE = {"none": 0, "relu": 1}
 BLOCK_M = 16
 #: N/K 轴候选块宽，从大到小取能整除的那个；都不能整除则该形状表达不了
 BLOCK_LADDER = (64, 32, 16)
-#: 昇腾侧一次发射占用的向量核块数与流水深度（云端调优项，本地只固定写法）
+#: 昇腾侧一次发射占用的立方体核块数与流水深度（云端调优项，本地只固定写法）
 NUM_BLOCKS = 8
 VEC_THREADS = 64
 NUM_STAGES = 2
@@ -93,12 +97,14 @@ def gemm_cpu_impl(A, W, bias, C, n: int, k: int, bm: int, bn: int, bk: int, act_
 
 
 def gemm_asc_impl(A, W, bias, C, n: int, k: int, bm: int, bn: int, bk: int, act_mode: int):
-    """昇腾方言正文：L1 放两个操作数、L0C 放累加器、UB 上做收尾；块划分与 CPU 那份同构。
+    """昇腾 910B 方言正文：Cube 单工做主乘加、UB 上放累加、标量 serial 收尾（加偏置/压负）。
 
-    白话：把要乘的两小片先搬到近便的中间仓库，让专用的乘加单元连着算几轮并把账续在同一个
-    格子里，算完再挪到另一块仓库做加成和压负，最后整块送回大表格。
+    白话：把乘加交给核上的立方体单元连着算，账先记在同一块公共小格子里（UB），算完就地用
+    标量把偏置补上、按需把负数压成零，再整块写回大表格。首轮靠"从头记"的标志位清零，不
+    单开清账步；也不碰 L0C/L1 那两层——910B 上 L0C 搬不回 UB（硬件 fixpipe 不支持），
+    收尾只能在 UB 上做，故操作数与累加都摆在 UB。
 
-    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，本地不实编）。
+    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")）。
     """
     import tilelang.ascend.language as T
 
@@ -108,35 +114,34 @@ def gemm_asc_impl(A, W, bias, C, n: int, k: int, bm: int, bn: int, bk: int, act_
     @T.prim_func
     def gemm_impl(A: T.Tensor((m, k), "float32"), W: T.Tensor((n, k), "float32"),
                   bias: T.Tensor((n,), "float32"), C: T.Tensor((m, n), "float32")):
-        """被追踪的那一层：与 CPU 那份同一组常量，网格固定为若干个向量核块。
+        """被追踪的那一层：网格固定为若干个立方体核块，行数 m 是活的。
 
-        白话：昇腾件这一份，同一本账换一台机器摆——仓的位置、一次搬多宽、流水几层在这里定死，
-        行数留成活的；末尾不够一整块的部分交给搬运自己带的那道闸拦住，不会越到大表格外头。
-        
+        白话：同一本账换到立方体单元上摆——两个操作数和累加都放公共小格子，一次搬多宽、
+        竖着切几列都定死，有多少行都不影响切法；末尾不够一整块的部分交给搬运自带的那道闸
+        拦住（越界写回被谓词挡下），不需手写守卫。
         """
         with T.Kernel(NUM_BLOCKS) as bx:
-            a_l1 = T.alloc_l1((bm, bk), "float32")
-            w_l1 = T.alloc_l1((bn, bk), "float32")
-            c_l0c = T.alloc_l0c((bm, bn), "float32")
-            c_ub = T.alloc_shared((bm, bn), "float32")
-            b_ub = T.alloc_shared((bn,), "float32")
-            T.annotate_buffer_versions({c_ub: NUM_STAGES})
-            for chunk in T.Pipelined(T.ceildiv(m, bm * NUM_BLOCKS), num_stages=NUM_STAGES):
-                my = chunk * NUM_BLOCKS + bx
-                for mx in T.serial(nb):
-                    T.clear(c_l0c)
-                    T.copy(bias[mx * bn], b_ub)
-                    for ko in T.serial(T.ceildiv(k, bk)):
-                        T.copy(A[my * bm, ko * bk], a_l1)
-                        T.copy(W[mx * bn, ko * bk], w_l1)
-                        T.gemm(a_l1, w_l1, c_l0c, transpose_B=True)
-                    T.copy(c_l0c, c_ub)
-                    with T.SimtVF(threads=VEC_THREADS):
-                        for i, j in T.Parallel(bm, bn):
-                            v = c_ub[i, j] + b_ub[j]
-                            c_ub[i, j] = T.if_then_else(
-                                act_mode == 1, T.max(v, T.cast(0, "float32")), v)
-                    T.copy(c_ub, C[my * bm, mx * bn])
+            a = T.alloc_shared((bm, bk), "float32")
+            w = T.alloc_shared((bn, bk), "float32")
+            cl = T.alloc_shared((bm, bn), "float32")
+            with T.Cube():
+                for chunk in T.serial(T.ceildiv(m, bm * NUM_BLOCKS)):
+                    my = chunk * NUM_BLOCKS + bx
+                    for mx in T.serial(nb):
+                        # K 分块连着乘加，首轮 clear_accum 清零，后续续在同一个 UB 格子里
+                        for ko in T.serial(T.ceildiv(k, bk)):
+                            T.copy(A[my * bm, ko * bk], a)
+                            T.copy(W[mx * bn, ko * bk], w)
+                            T.gemm(a, w, cl, transpose_B=True, clear_accum=ko == 0)
+                        # 收尾标量化：加偏置、按需压负为零（910B 无 SimtVF/T.Parallel）
+                        for i in T.serial(bm):
+                            for j in T.serial(bn):
+                                v = cl[i, j] + bias[mx * bn + j]
+                                if act_mode == 1:
+                                    if v < 0:
+                                        v = 0.0
+                                cl[i, j] = v
+                        T.copy(cl, C[my * bm, mx * bn])
 
     return gemm_impl
 

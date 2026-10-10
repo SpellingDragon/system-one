@@ -294,13 +294,13 @@ def test_gdn_cpu_forward_matches_independent_recursion():
     _assert_kernel_ran("gdn[")
 
 
-def test_gdn_cpu_backward_declared_partial_but_grads_are_correct():
-    """反向边界：必须如实标 partial 并登记阻塞点；同时"手工算"的那份梯度要经得起自动微分。
+def test_gdn_backward_ascend_kernelized_cpu_ruler_grads_correct():
+    """反向边界（P1-4 合流后）：昂腾反向已内核化（BWD_STATUS=kernelized），但 cpu target 故意走 torch 尺子并登记 gdn_backward[cpu] 阻塞；回退那份梯度要经得起自动微分。
 
-    这一条不是"反向通过内核验收"，而是"partial 这个边界本身是可信、可核对的"：口径对了，
-    云端换成内核时才不会连带改数值。
+    同时守两件事：接口面如实反映"昂腾已内核化、cpu 留尺子路"的边界；且回退路梯度正确——
+    云端真机换 ascend 件时数值口径不漂移。
     """
-    assert gdn_kernel.BWD_STATUS == "partial", "反向内核化的边界必须写在接口面上"
+    assert gdn_kernel.BWD_STATUS == "kernelized", "P1-4 合流起 gdn 反向已内核化（attempts/F 六梯）"
     torch.manual_seed(14)
     heads, seq, dk, dv = 2, 12, 8, 8
     q = torch.nn.functional.normalize(torch.randn(heads, seq, dk), p=2, dim=-1)
@@ -317,7 +317,7 @@ def test_gdn_cpu_backward_declared_partial_but_grads_are_correct():
     for name, got_one, want_one in zip(("dq", "dk_", "dv", "dg", "dbeta"), got, want):
         torch.testing.assert_close(got_one, want_one, **TOL, msg=f"{name} 与自动微分不一致")
     assert any("gdn_backward" in key for key in ascend_env.blockers()), \
-        "partial 必须留下机器可见的阻塞记录，不许只在注释里说"
+        "cpu 回退必须留下机器可见的阻塞记录（昂腾路已内核化、不走本 cpu 测）"
 
 
 # --------------------------------------------------------------------------- LoRA
