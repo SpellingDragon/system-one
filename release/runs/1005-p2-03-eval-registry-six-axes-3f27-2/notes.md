@@ -6,7 +6,6 @@
 - 真实下载累计 242,548,303 字节（幂等复跑状态记 cached、字节不被清零或翻倍）
 - 六轴表：quality=data-ready、calibration=data-ready、longctx=data-ready、multimodal=data-ready、speed=n/a、parity=n/a
 - 一致轴按 B3 裁定显式 n/a；npu 后端当场拒绝并指向 p2-13 接入点（不静默回退 CPU）
-- 结论：待填写
 
 > 三行必填；失败的实验同样要留下结论行（PRODUCTION §9.1 负结果入库）。
 > 收尾由 sys1.runs 校验：没有结论行就不许 finish()。

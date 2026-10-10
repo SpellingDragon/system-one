@@ -8,7 +8,6 @@
 - - A2 双路一致：records=40 compared=40 argmax_all_same=True worst_prob_drift=2.05e-05 tolerance=0.005 passed=True
 - - B2 前缀命中：requests=3 hits_delta=2 misses_delta=1 tokens_fed_delta=193 all_hits_suffix_only=True
 - - 引擎：Qwen/Qwen3-0.6B loader=minimal head=[151936, 1024] render_version=dmlaya_render_v1
-- 结论：待填写
 
 > 三行必填；失败的实验同样要留下结论行（PRODUCTION §9.1 负结果入库）。
 > 收尾由 sys1.runs 校验：没有结论行就不许 finish()。

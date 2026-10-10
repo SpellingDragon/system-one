@@ -8,7 +8,6 @@
 - 一致轴按 B3 裁定显式 n/a；npu 后端当场拒绝并指向 p2-13 接入点（不静默回退 CPU）
 - train 底账（D1，训练侧消费面，不入六轴评测表）：3 集 / 10,000 条 / 真实下载 6,442,951 字节（通道 https://hf-mirror.com、-、local）；qtype 逐集 [('typed-decisions-train', {'_other': 0, 'choice': 1800, 'noul': 1800, 'score': 2400}), ('clue-train-subset', {'_other': 0, 'choice': 2000, 'noul': 0, 'score': 0}), ('clue-train-decision', {'_other': 0, 'choice': 992, 'noul': 1008, 'score': 0})]；Intern-Decision train 探查结论：上游无 train 分区：pin 2f81580 归档内只有 test 档数据，不登记 Intern train 项（只交 typed train）（取证见 registry.INTERN_TRAIN_PROBE）——查无即如实记，不硬造分区凑数
 - 中文 train 语料底账（D3，C5 前置闸之二）：[('clue-train-subset', 'cached', 2000), ('clue-train-decision', 'cached', 2000)] / 真实下载 5,840,335 字节；中文档 id 与考卷 id 逐条互斥（档位段 train vs validation/test 写在 id 里，断言见 tests/test_registry.py -k split_isolation）；语料缺口上报：CMMLU 上游无 train 分割：modelscope/cmmlu 仓只有 README.md/cmmlu.py/cmmlu_v1_0_1.zip 三件，归档内部只有 dev/(67 个 csv) 与 test/(67 个 csv)，`train` 路径 0 个——故不登记 CMMLU train 项；中文 train 语料只交 CLUE(tnews/ocnli) train 档（已登记 clue-train-subset / clue-train-decision）（取证见 registry.ZH_TRAIN_PROBE）——查无即如实记，不拿 dev 档改名凑 train
-- 结论：待填写
 
 > 三行必填；失败的实验同样要留下结论行（PRODUCTION §9.1 负结果入库）。
 > 收尾由 sys1.runs 校验：没有结论行就不许 finish()。

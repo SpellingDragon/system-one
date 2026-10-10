@@ -19,7 +19,6 @@
 - 全量真数（重写后）：`python -m pytest tests/test_assets.py tests/test_backbone_layout.py -q` → 44 passed, 1 skipped in 60.55s（唯一 skip 是换脑的 MPS 变体：本机 MPS 被一阶段长跑占用，按 SYS1_ALLOW_MPS 门控）。
 - 逐孙任务口径复跑：`-k load` → 8 passed, 21 deselected in 14.17s；`-k seams` → 5 passed, 24 deselected in 6.60s；`-k seam_fail` → 15 passed, 14 deselected in 5.06s；`-k swap_brain` → 1 passed(CPU 实测), 1 skipped(mps 变体), 27 deselected in 18.67s；A4 原文口径 `-k swap_brain -q -m mps` → 1 skipped, 28 deselected in 1.60s。
 - 口径说明（防 config 与本笔记数字被读成互相矛盾）：config.yaml 里 backbone_download_bytes=0 / seconds=3.3 是**本 run 复跑那次**的读数——快照已在 bench/ms_models 命中缓存，净增下载 0 字节；真实首拉的 1,769,980,952 字节 / 311.3s 记在上一条观察与 metrics step=0，来源是往空目录 bench/p201_dl_fresh 的首拉实测（日志 .out_p201_redownload.txt 尾行 PROVENANCE_JSON）。
-- 结论：待填写
 
 > 三行必填；失败的实验同样要留下结论行（PRODUCTION §9.1 负结果入库）。
 > 收尾由 sys1.runs 校验：没有结论行就不许 finish()。

@@ -7,7 +7,6 @@
 - 六轴表：quality=data-ready、calibration=data-ready、longctx=data-ready、multimodal=data-ready、speed=n/a、parity=n/a
 - 一致轴按 B3 裁定显式 n/a；npu 后端当场拒绝并指向 p2-13 接入点（不静默回退 CPU）
 - train 底账（D1，训练侧消费面，不入六轴评测表）：1 集 / 6,000 条 / 真实下载 602,616 字节（通道 https://hf-mirror.com）；qtype 逐集 [('typed-decisions-train', {'_other': 0, 'choice': 1800, 'noul': 1800, 'score': 2400})]；Intern-Decision train 探查结论：上游无 train 分区：pin 2f81580 归档内只有 test 档数据，不登记 Intern train 项（只交 typed train）（取证见 registry.INTERN_TRAIN_PROBE）——查无即如实记，不硬造分区凑数
-- 结论：待填写
 
 > 三行必填；失败的实验同样要留下结论行（PRODUCTION §9.1 负结果入库）。
 > 收尾由 sys1.runs 校验：没有结论行就不许 finish()。

@@ -1,4 +1,0 @@
-learning
-production
-serving
-sys1

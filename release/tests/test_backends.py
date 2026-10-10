@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import sys
 import warnings
-import pytest
 
 import pytest
 import torch
@@ -30,12 +29,6 @@ def _clean_compile_cache():
     get_compiled 的编译缓存/失败记忆是模块级单例；不隔离则别组用例先行写入 key 时，
     "per-key 计数""失败不重试"等断言在收集顺序变化后（CI 装包版本差异即可触发）必炸。
     """
-    backends.reset()
-    yield
-    backends.reset()
-
-def _isolate_global_state():
-    """全局状态复位：探测结论、编译缓存、阻塞账、计数、env 偏好都是进程级量。"""
     backends.reset()
     yield
     backends.reset()
