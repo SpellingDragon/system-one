@@ -881,22 +881,28 @@ __aicore__ inline void asc_copy_gm2l1_dn2nz(__cbuf__ DT *dst, __gm__ ST *src,
   asc_copy_gm2l1_nd2nz(dst, src, rowBytes, mode, nRows, cols, pad1, pad2);  // VERIFY V1
 }
 
-// L1→L0A/L0B 装填（gemm.h 模板体 8 参发射：dst,src,sid,kStartFrac,mStep,kStep,srcStrideBlk,dstStrideBlk）
+// P1-1d 修复（2026-10-10）：官方 LoadData2DL12L0ACal（mm_impl.h:32/35）发 **9 参**
+//   (dst,src,startIndex,repeatTimes,srcStride,dstGap,sid,transpose(0/1),inc)。
+// 旧 trunk 只发 7 参——把 addrCalMode 顶进 sid 位、漏 transpose 位、且 codegen 传入的
+//   sid 被 (void) 丢弃 → DMA 2D 描述符字段错位 = aicore 507015（非法访问）头号根因。
+//   此处按官方位序补齐：our dstStride→dstGap 槽、sid→sid 槽（回穿）、transpose=false、inc=0。
+//   单位（元素/块）仍标 V2，上卡数值定夺；本修只消除结构性错位（编译可过但取位错的那类）。
 template <typename T>
 __aicore__ inline void asc_copy_l12l0a(__ca__ T *dst, __cbuf__ T *src, int sid, int kStart,
                                        int mStep, int kStep, int srcStride, int dstStride) {
   (void)kStep;
-  // VERIFY V2：startIndex=行块起点(kStart 语义按发射名取 m 起点)，repeatTimes=mStep
-  // 官方 Cal 形（mm_impl.h:24）：(dst,src,startIndex,repeatTimes,srcStride,dstGap,sid,transpose,inc)
+  // VERIFY V2：startIndex=kStart(发射行块起点)、repeatTimes=mStep、srcStride 单位待卡定
   load_cbuf_to_ca(dst, src, (uint16_t)kStart, (uint8_t)mStep, (uint16_t)srcStride,
-                  (uint16_t)dstStride, (__cce_scalar::addr_cal_mode_t)0);  // VERIFY V2 位序
+                  (uint16_t)dstStride, (uint8_t)sid, false,
+                  (__cce_scalar::addr_cal_mode_t)0);  // 官方 9 参位序（mm_impl.h:35）
 }
 template <typename T>
 __aicore__ inline void asc_copy_l12l0b(__cb__ T *dst, __cbuf__ T *src, int sid, int kStart,
                                        int mStep, int kStep, int srcStride, int dstStride) {
   (void)kStep;
   load_cbuf_to_cb(dst, src, (uint16_t)kStart, (uint8_t)mStep, (uint16_t)srcStride,
-                  (uint16_t)dstStride, (__cce_scalar::addr_cal_mode_t)0);  // VERIFY V2 位序
+                  (uint16_t)dstStride, (uint8_t)sid, false,
+                  (__cce_scalar::addr_cal_mode_t)0);  // 官方 9 参位序（对称 LoadData2DL12L0BCal）
 }
 template <typename T>
 __aicore__ inline void asc_copy_l12l0b_transpose(__cb__ T *dst, __cbuf__ T *src, int mStart,

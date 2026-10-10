@@ -1,10 +1,14 @@
 #!/bin/bash
 # ============================================================================
-# bundle_ondemand.sh — P0-2 上机一键（自包含·幂等·单文件，窗口预算 <=10min）
+# bundle_ondemand.sh — P1-1d/P1-1e/P1-3 上机一键（自包含·幂等·单文件，窗口预算 <=10min）
 # 用法（910B 实例上）： bash bundle_ondemand.sh
-# 输出： COMPILE-VERDICT / RUNTIME-PASS{json} / RUNTIME-FAIL 行 + VERDICT-SUMMARY
+# 输出：每 target 一行 NUM-* PASS/FAIL + VERDICT-SUMMARY
+# 本窗使命：验 §12 九参修复是否消除 cube 面 aicore 507015（gemm_l1/dW）+ 补收 addln/readout/delta 真机数值
 # ============================================================================
 set -uo pipefail
+# 缓存纪律：tilelang cache key 不含模板内容——若复用旧实例的 ~/.tilelang/cache 会命中旧 .o。
+# 强制全新缓存目录，保证本窗 overlay 后的 compat §12 真被编译（R20/R-B 战报）。
+export TILELANG_CACHE_DIR=$(mktemp -d)
 echo "=== [0] env ==="
 SRC="https://github.com/SpellingDragon/system-one-study.git"
 SUB=/tmp/sys1 && rm -rf $SUB
@@ -37,10 +41,13 @@ echo "=== [3] bisheng options injection (idempotent, py_compile-verified) ==="
 python3 "$P910B/../patches/patch_bisheng.py" || { echo "FATAL: bisheng inject failed"; exit 1; }
 
 # 缓存纪律：tilelang 缓存 key 不含模板内容，改 compat 必须换 TILELANG_CACHE_DIR（见 run B/C 战报）
-echo "=== [4] compile verdict (local-verified shape) ==="
-cd /tmp && timeout 300 python3 "$P910B/../e2e_cube.py" 2>&1 | grep -E "E2E-CUBE|HAS_MIX" | head -2
-
-echo "=== [5] runtime verdict (2048^3 bf16 numeric + tflops) ==="
-timeout 480 python3 "$SUB/release/ascend/port910b/run_kernel.py" 2>&1 | tail -3
+echo "=== [4] consolidated numerics (single window · P1-1d cube fix + P1-1e rig + P1-3 delta) ==="
+cd "$SUB/release/ascend/port910b"
+# 每件子进程隔离（aicore exception 不连坐，oncard-wave1 教训）。cube 修复复验 + vector 回归 + rig 补收。
+for t in gemm_l1 dw addln readout gdn; do
+  timeout 480 python3 run_numerics.py --only $t 2>&1 | grep -E "NUM-$t" | head -1
+done
+# P1-3 GDN delta rule 首次真机执行（F 波仅 CPU 编过，本件上卡跑+对拍）
+timeout 480 python3 run_delta_card.py 2>&1 | grep -E "NUM-delta_fwd" | head -1
 
 echo "=== VERDICT-SUMMARY (copy the lines above into run notes) ==="

@@ -10,10 +10,10 @@
 - [ ] P1-1 readout/gemm/dW/add_ln 四件**改道移植**（向量面最薄可标量化；P0-1 修正：无纯 AIC 件）+对拍 —— 验证：gradcheck NPU 档
   - **P1-1a 编译面已收（2026-10-08 并发波）**：add_ln ✓ / readout ✓ / GDN-conv ✓ / gemm-cube 无回归 ✓（attempts/B、C 双代理，主仓 compat 合并真源 4/4 全绿，run p11-merge）；**P1-1b 续收（2026-10-09 双代理波）**：gemm 全链（含 L0C→GM 输出段 copy_matrix_cc_to_gm 12 参）✓、dW(l0tr 主案 5/5 形)✓、rope(表加载×3)✓、attn_sw(×2)✓——真源 compat 966 行六线集成回归全绿；GAP-D1/D1b 已并真源；余：bf16 标量 cast（生产 fp16 无碍）、G-D2 上游单（内部持有）、G-D3 不投、dW 出口朝向/rope 就地接口=生产接入波裁决
   - **P1-1c 数值面首战（2026-10-10 真机两窗）**：向量面三件绿（GDN-conv 6.35e-08 / rope 3.13e-08 / attn_sw 1.41e-07）——标量化+表加载+§11 数学件路线数值成立；**cube 面双崩**（gemm_l1 与 dW 同型 aicore exception 507015=DMA 非法访问）；gemm direct rel=nan（已知 UB 布局）
-  - [ ] **P1-1d cube-V12 位段修复（关键路径）**：官方 mm 链 LoadData2DParams 构造点逐参对照，重打 §12 装填参数（startIndex/repeatTimes/srcStride/dstGap 单位与位序）—— 验证：单窗复验 gemm_l1 64³ + dW 双绿（≤8min）
-  - [ ] P1-1e addln/readout 数值 case 补入 run_numerics（rig 修复）+ 下窗顺带收
+  - [ ] **P1-1d cube-V12 位段修复（关键路径·结构修复已落地 2026-10-10）**：根因锁定=trunk `asc_copy_l12l0a/b` 发 **7 参**而官方 `LoadData2DL12L0ACal`（mm_impl.h:32/35）发 **9 参** `(dst,src,startIndex,repeatTimes,srcStride,dstGap,sid,transpose,inc)`——`sid`（codegen 本传入）被丢、`addrCalMode` 顶进 `sid` 位、漏 `transpose` 位 = DMA 描述符字段错位 → 507015。**已按官方 9 参位序补齐+回穿 sid**（`port910b_compat.h` 971 行，sync 入 `patches/`）；本地编译判决 `A2-COMPILE-PASS`（gemm_l1）+ `D-DW-COMPILE-PASS` + `E2E-CUBE-ONLY PASS`（主链无回归）。**transpose 路 arity 本就 8 参正确、非病灶**。单位（V2 元素/块）仍待卡定 —— 验证：单窗 bundle 复验 gemm_l1 + dW 数值 rel（≤8min，R20 禁卡上试错）
+  - [x] P1-1e addln/readout 数值 case **已接入 run_numerics**（G 代理：六→八 target，内联 DSL 避 b 件 sys.exit，新增 `import tilelang.ascend.language as TA`，两件 `--no-run` compile-PASS exit0；阈值由宿主仿真定 r_h<1e-5/r_y<3e-4 有偏判别）——真机 rel 随 P1-1d 同窗收
 - [x] P1-2 rope/attn_sw 移植（已随 P1-1b 完成：编译×5 + 数值双绿 1e-7 级，P1-1c 记档）
-- [ ] **P1-3 GDN 件移植（本项目旗舰）**：短卷积 ✓ 真机数值绿（6.35e-08，P1-1c）→ 剩余聚焦 **delta rule 前后向**（u/w 门控+beta/s 公式+衰减递推；decay 的 log 缺件=需查 exp 负指数表载或 §11 扩展件）—— 验证：fp32 分步对拍（partial 可入账）+ 真机 rel
+- [ ] **P1-3 GDN 件移植（本项目旗舰）**：短卷积 ✓ 真机数值绿（6.35e-08，P1-1c）→ delta rule 前后向 **编译+CPU 对拍已收（F 代理 2026-10-10）**：fwd/bwd kernel ub+pure 双档 compile-PASS，六项梯度全实现（未动用 partial 例外条），CPU fp32 golden rel_o=1.29e-07/bwd 5.76e-07/adjoint-vs-FD 7.28e-10；**decay 的 log 缺件判定=口径(a) 仅需 trunk expf、零新增 compat**（`compat_patch_F.h` 仅口径(b)备用，本波不合并 trunk）。真机首执行件 `run_delta_card.py` 就绪（显式 9 张量分配，本地 compile-only PASS）—— 验证：同 P1-1d 单窗 `NUM-delta_fwd` 真机 rel
 - [ ] P2 三栈联调（torch_npu+自研件混合栈，GDN 件替换Conv2D路径）—— 验证：0.8B 训练步跑通
 - [ ] R6/R7 成本记账与 gate 报价（恢复 C5 的前置）—— 验证：报价行+熔断判定
 
