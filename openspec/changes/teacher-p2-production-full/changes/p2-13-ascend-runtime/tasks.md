@@ -19,7 +19,8 @@
   - **执行战果（2026-10-10 并发波 H/I/J/K，编排者容器独立复验）**：**7 接口 target=ascend 编译 PASS**——add_ln(前+后)/letter_readout/rope/attn_sw/gemm(UB-direct T.Cube)/gdn(fwd ub+pure/bwd/conv，且出 `.aibin` 设备码)。gdn **BWD_STATUS partial→kernelized**（attempts/F 六梯接入）、新增 `gdn_conv_asc.py` conv 入口（R7 崩点）；**rope forward 补 ascend 路由**（此前无分支→卡上永落 eager，内核白编）+ fp32 门防静默错；`test_ascend_gradcheck.py` 同步 kernelized 契约，**20 passed/1 skipped** 无回归；harness `compile_all_asc.py` 使能（active_backend 桁）+ per-op `reconcile/verify_*.py` 作探测器。
   - **余 scoped gap（不假绿）**：dW(l0tr)/lora 阻于 **§12 缺 `asc_fill_l1`**（codegen 在 gm2l1 尾区发 3 参 L1/CBuf 块步填充件，trunk 无、官方仅 GM-init Fill 无 cbuf 路）——K 已写 `reconcile/compat_patch_K.h`+生成码旁证（唯缺此件）。需 §12 owner 寻 910B 原生 L1-fill 或改 dW 免尾形；dW 数值本属 V1/V2/V3 卡待域。
   - **P1-4b 已闭（代理 L，编排者容器统一复验 9/9）**：§12 新增 `asc_fill_l1`→`set_l1_2d`（config=`(value<<32)|(blk_num<<16)|repeat`，位段由 hivmc 内嵌 dav-c220-cube bitcode 反汇编**实证**；value 位为推断但 fill.cc 恒填 0 数值无害）。dW/lora target=ascend 转 PASS，e2e/a2/gemm 无回归，sid×2 不变量守住，#if 88/88。**上卡待证（登记 V4/V5/V6）**：V4 value 位段（若放开非0填充）、V5 dst_gap 拆趟、V6 repeat 步距。**小遗（探测器非产品）**：`verify_dw.py` 需补 no-op 发射桩才能独立取判决行（现靠 lora 的 gemm_dw 腿证），下任代理修。
-- [ ] P2 三栈联调（torch_npu+自研件混合栈，GDN 件替换Conv2D路径）—— **硬前置=P1-4 接口 home 九件 target=ascend 全绿**（否则训练步首个 SimtVF 件即编不出）—— 验证：0.8B 训练步跑通
+- [ ] P2 三栈联调（torch_npu+自研件混合栈，GDN 件替换Conv2D路径）—— **硬前置=P1-4 接口 home 九件 target=ascend 全绿✓**（否则训练步首个 SimtVF 件即编不出）—— 验证：0.8B 训练步跑通
+  - **本地前置已备（代理 M，编排者 host 复验）**：`ascend/autograd_asc.py`（8 `autograd.Function`+门面，闭合 R11"内核无训练消费方"缺口）+ `ascend/train_step.py`（混合栈一步：linear→add_ln→rope→attn_sw→linear→gdn_delta→lora→readout）。host `--target cpu`：**loss 0.911→0.824、15 参 grad 全非 None**；`test_ascend_train_step.py` 8 passed + gradcheck 基线 20 passed 无回归。**卡窗唯余**：`--target ascend` 翻 device（需 torch_npu）即跑 0.8B 一步。**反向未内核化件（G-1/G-2，性能面非正确性）**：attn_sw/gdn_conv 走 fp32 闭式回退（同 track-A），待后续内核化
 - [ ] R6/R7 成本记账与 gate 报价（恢复 C5 的前置）—— 验证：报价行+熔断判定
 
 ## 挂起（甲路裁定）
