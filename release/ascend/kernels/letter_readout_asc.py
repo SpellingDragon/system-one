@@ -6,7 +6,8 @@
 **加**，不是覆盖。
 【怎么做】① 前向按"一次一行"走：910B 份逐格按行号散读、标量落回出口（attempts/B 已证形态：
    动态下标的散读界守卫由 codegen 自动生成），所以抽行数（picked）与表行数（total）都可以是
-   动态符号；② 反向把每行梯度加回原表：CPU 与昇腾两份都走"单块串行扫抽行号、逐笔退回"，
+   动态符号（行号一律每行只向 GM 取一次进寄存器，守卫与偏移都读寄存器——P1-1h 取号收敛，
+   理由与凭据见 reconcile/U_readout_diag.md）；② 反向把每行梯度加回原表：CPU 与昇腾两份都走"单块串行扫抽行号、逐笔退回"，
    天然无竞争（昇腾原件的多块原子加方案被"原子符号无落点"挡下，见【为什么】）；③ 行号表必须
    是 int32 且连续——下标要直接进地址算式，dtype 不符时入口层先转（不做静默截断）。
 【为什么】这一件看着像"顺手就能用 torch.index_select"，仍写成方言件的原因是它在训练链上：反向的
@@ -72,6 +73,16 @@ def gather_asc_impl(Rows, Idx, Out, dim: int):
     32B 粒度静默截断约束（compat_gap_B.md 约束段）。SIMT 向量块族在 910B 不存在，本件
     全部是 T.serial 嵌套；fp32→fp32 同宽，不做任何位宽换算。
 
+    P1-1h 取号收敛（数值诊断波）：行号 `Idx[row]` 每行只向 GM 取一次、落进标量变量 k，尾块守卫、
+    界守卫与出口偏移都读 k。收敛前的等价写法 `Rows[Idx[row], j]` 被 codegen 展成**最内层逐格重复
+    三次** GM 载入（界守卫两次 + 地址一次；容器实证：形态 A 生成码 `Idx[` 出现 3 次 len=1024，
+    收敛后 1 次 len=920，判据脚本 reconcile/U_oracle.py --harden），而"拿刚载入的值现算地址、
+    还在最内层逐格重复"是八条真机 case 里只有 readout 才有的结构（真机全绿的 addln/rope/gdn/
+    delta/gemm 地址皆仿射——判别表见 reconcile/U_readout_diag.md）。本改写语义逐位不变（同一
+    row 的行号在块内不会变），host 三档对拍 --prod/--cpu/--shadow 全 bit-exact；生成码里的动态
+    下标界守卫仍在，且不依赖 dim%8==0（对照形态：整行走 T.copy 装填会丢界守卫并撞上 GAP-B 32B
+    粒度静默截断，已否决）。
+
     :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，判决过程见
         reconcile/H_RESULT.md 与 verify_letter_readout.py）。
     """
@@ -83,19 +94,22 @@ def gather_asc_impl(Rows, Idx, Out, dim: int):
     @T.prim_func
     def gather_impl(Rows: T.Tensor((total, dim), "float32"), Idx: T.Tensor((picked,), "int32"),
                     Out: T.Tensor((picked, dim), "float32")):
-        """被追踪的那一层：抽多少行是活的（动态网格按块宽切），行宽是常量，散取起点直接取自册子。
+        """被追踪的那一层：抽多少行是活的（动态网格按块宽切），行宽是常量，散取起点先取一次行号进寄存器再用。
 
-        白话：昇腾件这一份，每块认领一叠点名册的行，册子上的行号直接当地址偏移用，一格一格
+        白话：昇腾件这一份，每块认领一叠点名册的行，册子上的行号一行抄一次到随手记上，再拿它
+        当地址偏移，一格一格
         原样抄进新表对应行；册子里重复点同一行就抄两遍，这一步连算术都不做。
         
         """
         with T.Kernel(T.ceildiv(picked, GATHER_ROWS_PER_BLOCK)) as bx:
+            k = T.alloc_var("int32")   # 行号寄存器：每行只向 GM 取一次（P1-1h 收敛）
             for i in T.serial(GATHER_ROWS_PER_BLOCK):
                 row = bx * GATHER_ROWS_PER_BLOCK + i
                 # 尾块守卫：末尾不够一整块认领的行不落全局（散读本身另有 codegen 界守卫）
                 if row < picked:
+                    k = Idx[row]
                     for j in T.serial(dim):
-                        Out[row, j] = Rows[Idx[row], j]
+                        Out[row, j] = Rows[k, j]
 
     return gather_impl
 
@@ -138,7 +152,9 @@ def scatter_add_asc_impl(GOut, Idx, GRows, dim: int):
     的发射符号在 tilelang 模板与 CANN 8.5 头文件里都没有落点（H 代理判决容器 grep 实测 0 命中），
     多块并发回写同一张表会互相盖账；单块串行与 scatter_add_cpu_impl 同式、天然无竞争，
     "重复行号真加两次"的口径原样保留（入口层负责把 GRows 清零）。逐格标量读写 GM，
-    不走批量搬运（同 gather 件理由）。升级多块（原子面补齐或"每核一份偏量表 + 第二段归约
+    不走批量搬运（同 gather 件理由）。P1-1h 同法收敛：行号 `Idx[i]` 每行只向 GM 取一次进标量
+    变量 k，界守卫与"读—加—落"的偏移都读 k（收敛前每格重复取三次，RMW 的读与写各带一次守卫）。
+    升级多块（原子面补齐或"每核一份偏量表 + 第二段归约
     + 跨核事件"）属开卡后性能项，见 reconcile/H_RESULT.md。
 
     :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，判决过程见
@@ -161,9 +177,11 @@ def scatter_add_asc_impl(GOut, Idx, GRows, dim: int):
         """
         with T.Kernel(1) as bx:
             # 目标表必须先清零：本件只做"加一笔"，不做"盖一笔"
+            k = T.alloc_var("int32")   # 行号寄存器：每行只向 GM 取一次（P1-1h 收敛）
             for i in T.serial(picked):
+                k = Idx[i]
                 for j in T.serial(dim):
-                    GRows[Idx[i], j] = GRows[Idx[i], j] + GOut[i, j]
+                    GRows[k, j] = GRows[k, j] + GOut[i, j]
 
     return scatter_impl
 

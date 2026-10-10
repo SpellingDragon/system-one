@@ -155,11 +155,23 @@ def _compile_probe(target: str) -> None:
 
     t = dialect(target)
     if target == TARGET_ASCEND:
-        @t.prim_func
-        def probe_asc(A: t.Tensor((64,), "float32"), C: t.Tensor((64,), "float32")):
-            """昇腾方言的最小自证件：一次搬入、一次并行乘二、一次搬出。
+        # P1-1g（G-gate 修复，2026-10-10），两条纪律都嵌在这里，改动前请先读：
+        # ① 载体必须是 910B(dav-2201) 合法形态——T.copy 进 UB → T.serial 标量循环 → T.copy 出
+        #    （与 add_ln_asc/gdn_conv_asc 的已判决形态同族）。SimtVF/T.Parallel 是 950 SIMT
+        #    载体，该代际无 SIMT 硬件模型、实测必编不出：旧探针正是这个写法，门把九件内核
+        #    全挡成 torch eager（wave2 实证 train_step "no grad_fn"）。
+        # ② 注解必须是"即评对象"：本模块顶部有 `from __future__ import annotations`，
+        #    def 处写的注解一律是字符串，py3.10 的 typing._type_check 对"求值结果不是类型"
+        #    直接拒（TypeError: Forward references must evaluate to types. Got buffer），
+        #    探针连编译器都进不去——所以这里不能写 `@t.prim_func def f(A: t.Tensor(...))`，
+        #    只能手工挂好求值后的 __annotations__ 再显式过 prim_func（*_asc.py 各件没有
+        #    future 前导，def 处天然即评，才写得成装饰器形态）。
+        # 判决凭据：reconcile/T_RESULT.md（容器 target=ascend 编译 PASS）；
+        # 防回潮守卫：tests/test_ascend_env_probe.py（静态断言零 SimtVF/T.Parallel，R14）。
+        def probe_asc(A, C):
+            """昇腾方言的最小自证件（910B 合法形态）：一次搬入、串行逐格乘二、一次搬出。
 
-            白话：不测任何业务算式，只看这台机器能不能把"搬进来、每人算一格、搬出去"这条路
+            白话：不测任何业务算式，只看这台机器能不能把"搬进来、一个人逐格算、搬出去"这条路
             编译成产物；能过就说明方言与后端是齐的，之后再谈算子写得对不对。
 
             """
@@ -167,12 +179,13 @@ def _compile_probe(target: str) -> None:
                 a = t.alloc_shared((64,), "float32")
                 c = t.alloc_shared((64,), "float32")
                 t.copy(A[0:64], a)
-                with t.SimtVF(threads=64):
-                    for i in t.Parallel(64):
-                        c[i] = a[i] * 2
+                for i in t.serial(64):
+                    c[i] = a[i] * 2
                 t.copy(c, C[0:64])
 
-        prog = probe_asc
+        probe_asc.__annotations__ = {"A": t.Tensor((64,), "float32"),
+                                     "C": t.Tensor((64,), "float32")}
+        prog = t.prim_func(probe_asc)
     else:
         @t.prim_func
         def probe_cpu(A: t.Tensor((64,), "float32"), C: t.Tensor((64,), "float32")):

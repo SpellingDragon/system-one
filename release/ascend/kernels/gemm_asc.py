@@ -1,9 +1,10 @@
 """gemm 方言件：C = act(A @ Wᵀ + bias)，行数 m 是动态符号，一次编译服务任意批大小。
 
-【做什么】同一套乘加口径写两份方言正文：ascend 那份按 910B 立方体单元（Cube 单工做主乘加、
-UB 放累加、标量 serial 收尾）摆；cpu 那份按本机真跑得通的路径摆（列块静态网格 + 行块动态
-串行循环）。两份都由 plan() 判形状、run() 负责取编译产物并就地写出口，位宽转换不在方言里做
-（出口一律 fp32）。
+【做什么】同一套乘加口径写两份方言正文：昇腾那份与 CPU 那份现在是**同一个标量正文生成器**
+（`gemm_scalar_body`）在两种方言下各追一遍——语言模块由 `ascend_env.dialect(target)` 注入，正文
+只用两方言公共子集（`T.serial` 循环 + `T.copy`(GM→UB) + 标量 load/store + 整数索引算术），
+不含任何立方体（Cube/mad/T.gemm）或 SIMT 向量构造。两份都由 plan() 判形状、run() 负责取编译
+产物并就地写出口，位宽转换不在方言里做（出口一律 fp32）。
 【怎么做】① 件形是"张量参数在前、整数常量在后"的工厂函数；run() 现场调用工厂拿到追踪好的
    PrimFunc，再交给 tilelang.compile 出产物并按形状键缓存。刻意**不用 tilelang.jit**：这种写法
    属 lazy 风格，jit(...) 只回 Kernel 对象不执行（实测出口保持全零），而它的 call-form 缓存拿
@@ -11,25 +12,33 @@ UB 放累加、标量 serial 收尾）摆；cpu 那份按本机真跑得通的�
    RuntimeError。② 本文件不写 `from __future__ import annotations`——tilelang 取 prim_func 的
    张量注解时只认闭包非局部名（eager/builder.py 的 get_func_nonlocals），一旦 PEP 563 把注解变成
    字符串，只在注解里出现的形状常量就没有闭包单元，编译期报 NameError: name 'n' is not defined。
-   ③ 动态维 m 的去处按后端分：CPU(c) 后端**网格上界必须是编译期常量**，把 m 写进网格会一次都不
-   发射（实测 C 全零、误差恰好等于 |A@Wᵀ| 最大值），故 CPU 侧用"列块静态网格 + 行块
-   T.serial(ceildiv(m, bm)) 动态循环"；昇腾侧同样只用常量网格（固定 NUM_BLOCKS 个立方体核块），
-   m 落在 T.serial 的行块循环上界。④ 收尾（加偏置、按需压负为零）在 UB 累加缓冲上逐元素做，
-   最后整块写回；尾块越界交给 T.copy 的自动边界谓词（实测 m=8 对 bm=16 误差为 0，不需手写守卫）。
-【为什么】三处口径是被约束逼出来的，不是风格：(a) 权重按 (N,K) 存、必须 transpose_B=True——昇腾
-   L1 输入的乘加路只认这个方向（手册与 TileKernels 的 GEMM 件都这么摆）；(b) 出口不在方言里降
-   位宽——昇腾 DMA 搬运不允许顺带转类型（tilelang/ascend/analysis/vf_checker.py 明确
-   "DMA copies cannot perform type casting"），CPU 侧实测把 fp32 块直接 copy 成 fp16 全局会撞
-   生成代码里的 `no matching conversion for C-style cast from 'float4' to 'half4'`，故两边统一
-   fp32 出口、入口层降位；(c) 被否方案：CPU 侧也用 T.Parallel 收尾——实测本方言的并行块索引
-   local 缓存会被语义检查拒绝（"Local buffer ... is thread-private"），serial 才成立；(d) 被否
-   方案：CPU 侧照 P1 的 Metal 件那样把 m 写进网格——Metal 认动态网格，c 后端不认，照搬会得到
-   "跑得通、数是零"的静默错，比直接报错更危险，故按后端拆开摆法；(e) 910B 侧（P1-4 合流）：
-   早先照 950 载体写的 SimtVF/T.Parallel 收尾在 patched 910B tilelang 下 COMPILE-FAIL（方言里
-   根本没有 SimtVF/Parallel），且累加若放 L0C 则搬不回 UB——910B 硬件 fixpipe L0C→UB 不支持
-   （port910b 卷宗 b10：FixpipeL0C2UBImpl=assert(false)）。故把操作数与累加都落到 UB(shared)，
-   主乘加走 Cube 单工，收尾标量 T.serial，fp32 的 T.clear 也被首轮 clear_accum 取代（fp32 T.clear
-   在 UB 上生成坏 float2 store）。云端待验：cube 面单位/V1-V3、清账口径的数值 rel（本波只判编译）。
+   ③ 动态维 m 的去处：两方言同一条纪律——**网格上界必须是编译期常量**（CPU c 后端把 m 写进网格
+   会一次都不发射，实测 C 全零、误差恰好等于 |A@Wᵀ| 最大值；昇腾 `T.Kernel` 是 1-D 核块网格，
+   同样只给常量），m 一律落在 `T.serial(T.ceildiv(m, bm))` 的行块循环上界上。④ 收尾（加偏置、
+   按需压负为零）在 UB/local 累加块上逐元素做，出口走**逐元素标量落全局 + 运行时行号守卫**，
+   不整块写回（见 ⑤）。⑤ 尾块口径从"交给 T.copy 的自动边界谓词"改成**夹址标量填装**：行块不满
+   bm 时，A 的每一行先按 `T.min(row, m-1)` 把地址夹进合法区间、再用 `T.if_then_else(row < m, 读值,
+   0.0)` 决定取不取（`if_then_else` 两侧都会求值，所以地址必须先夹，否则就是越界读）；写回同样按
+   行号守卫。这一改是 correctness 轨的核心动作——越界 DMA 读在卡上的表现正是 aicore exception
+   507015（DMA 非法访问），而本地 CPU 轨能真跑验证这条路径。
+【为什么】五处口径是被约束逼出来的，不是风格：(a) 权重按 (N,K) 存、标量三重循环天然吃这个方向
+   （`C[i,j] += Σ_k A[i,k]·W[j,k]` 就是 transpose_B 的算式本体），与 sys1/`gemm_ref` 同式；(b)
+   出口不在方言里降位宽——昇腾 DMA 搬运不允许顺带转类型（tilelang/ascend/analysis/vf_checker.py
+   明确 "DMA copies cannot perform type casting"），CPU 侧实测把 fp32 块直接 copy 成 fp16 全局会撞
+   生成代码里的 `no matching conversion for C-style cast from 'float4' to 'half4'`，故两边统一 fp32
+   出口、入口层降位；(c) 被否方案：CPU 侧用 T.Parallel 收尾——实测本方言的并行块索引 local 缓存
+   会被语义检查拒绝（"Local buffer ... is thread-private"），serial 才成立；(d) 被否方案：把 m 写进
+   网格——Metal 认动态网格，c 后端不认，照搬会得到"跑得通、数是零"的静默错，比直接报错更危险；
+   (e) **P1-1f 改道（D-cube1 两轨制）**：早先 910B 那份是 UB-direct 的 T.Cube 形态（编译绿、.o 出
+   得来，`K-GEMM ASC-COMPILE-PASS`），但真机 gemm_l1 连两窗崩在同一处（507015）——P1-1d 的
+   `asc_copy_l12l0a/b` 九参位序修复被证"必要不充分"，V1/V2 的 stride 单位与 V3 的 GM→L1 分形（NZ）
+   布局仍未证真，继续押注等于把 P2 训练步数值里程碑吊在最深的研究问题上。裁决：ascend 实现改可
+   移植标量体（wave2 已证该形态真机 1e-7 级可靠——gdn delta / addln / rope / attn_sw / gdn-conv
+   全是标量面），**同一份正文**由 dialect(target) 注入两遍 ⇒ cpu 轨真跑当数值 oracle（本地闭环，
+   这是 cube 数值第一次可在本地验）、ascend 轨只判编译；Cube 形态整体存档到
+   `reconcile/S_perf_track_cube.py` 归 performance-track 考古。另两条 910B 纪律照旧：累加不放 L0C
+   （硬件 fixpipe L0C→UB = assert(false)，卷宗 b10），也不用 fp32 的 `T.clear`（K 波实测在 UB 上
+   生成坏 float2 store `no viable overloaded '='`）——清零改标量置 0。
 """
 import tilelang
 
@@ -47,7 +56,7 @@ ACT_MODE = {"none": 0, "relu": 1}
 BLOCK_M = 16
 #: N/K 轴候选块宽，从大到小取能整除的那个；都不能整除则该形状表达不了
 BLOCK_LADDER = (64, 32, 16)
-#: 昇腾侧一次发射占用的立方体核块数与流水深度（云端调优项，本地只固定写法）
+#: 昇腾侧一次发射占用的核块数（correctness 轨＝列块数常量网格，此量只作上限口径保留）
 NUM_BLOCKS = 8
 VEC_THREADS = 64
 NUM_STAGES = 2
@@ -96,54 +105,103 @@ def gemm_cpu_impl(A, W, bias, C, n: int, k: int, bm: int, bn: int, bk: int, act_
     return gemm_impl
 
 
-def gemm_asc_impl(A, W, bias, C, n: int, k: int, bm: int, bn: int, bk: int, act_mode: int):
-    """昇腾 910B 方言正文：Cube 单工做主乘加、UB 上放累加、标量 serial 收尾（加偏置/压负）。
+def _alloc_tile(T, shape, dtype):
+    """tile 暂存的方言落点：cpu 走 local（day-1 口径），ascend 走 UB shared（H 波口径）。
 
-    白话：把乘加交给核上的立方体单元连着算，账先记在同一块公共小格子里（UB），算完就地用
-    标量把偏置补上、按需把负数压成零，再整块写回大表格。首轮靠"从头记"的标志位清零，不
-    单开清账步；也不碰 L0C/L1 那两层——910B 上 L0C 搬不回 UB（硬件 fixpipe 不支持），
-    收尾只能在 UB 上做，故操作数与累加都摆在 UB。
-
-    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")）。
+    这是正文生成器里**唯一**按方言分叉的一处，分的是"存储层归属"而不是算式：两方言各自的公共面
+    都不保证对方那层能落地（c 后端没有 UB 语义、910B 的 local 面未证），故在此收口，算式仍单份。
     """
-    import tilelang.ascend.language as T
+    if getattr(T, "__tilelang_dialect__", "") == ascend_env.TARGET_ASCEND:
+        return T.alloc_shared(shape, dtype)
+    return T.alloc_local(shape, dtype)
 
+
+def gemm_scalar_body(T, A, W, bias, C, n: int, k: int, bm: int, bn: int, bk: int,
+                     act_mode: int):
+    """可移植标量正文（D-cube1 correctness 轨）：同一份算式在 cpu/ascend 两方言下各追一遍。
+
+    白话：列切成固定的几块，每块自己从上往下把行一段段取进小格子；取数时末尾不满一行块的部分
+    先夹住地址再判"这行要不要"（不要就记零），乘加全用标量一笔笔算，算完逐格落回大表格、越界
+    的那几行根本不碰——所以批大小怎么变都不会读到表外的数。
+
+    四条纪律（都是取证逼出来的）：
+      1. 零 cube intrinsic / 零 SimtVF / 零 T.Parallel：只用 `T.serial` + 标量，910B(dav-2201)
+         面 SIMT 载体根本不存在，cube 面 V1/V2/V3 未证真（见模块 docstring ⑤/(e)）。
+      2. 清零走标量置 0，不用 `T.clear`：fp32 的 clear 在 UB 上生成坏 float2 store（K 波取证）。
+      3. 越界防线自己做（夹址 + 守卫），不赌 T.copy 的自动边界谓词：卡上越界读的表现就是 507015。
+      4. W 块（N/K 两轴都是编译期常量、且 plan 已判整除）永不越界 ⇒ 仍走 `T.copy` 整块 GM→UB，
+         保住"搬运走 DMA、计算走标量"的分层；A 块行轴是活的 ⇒ 走夹址标量填装。
+
+    :return: 追踪好的 PrimFunc（cpu 轨交 tilelang.compile 真跑，ascend 轨只判编译）。
+    """
     m = T.dynamic("m")
-    nb = n // bn
+    nb = n // bn   # 列块数＝网格上界：纯常量，两方言同一条纪律
+    nk = k // bk   # K 分块数：同样常量（k 已被 plan 判过整除）
 
     @T.prim_func
     def gemm_impl(A: T.Tensor((m, k), "float32"), W: T.Tensor((n, k), "float32"),
                   bias: T.Tensor((n,), "float32"), C: T.Tensor((m, n), "float32")):
-        """被追踪的那一层：网格固定为若干个立方体核块，行数 m 是活的。
+        """被追踪的那一层：列块/块宽/要不要压负数都是常量，只有行数 m 是活的。
 
-        白话：同一本账换到立方体单元上摆——两个操作数和累加都放公共小格子，一次搬多宽、
-        竖着切几列都定死，有多少行都不影响切法；末尾不够一整块的部分交给搬运自带的那道闸
-        拦住（越界写回被谓词挡下），不需手写守卫。
+        白话：模具在这一层定型——竖着切几列、每列多宽、K 分几段都写死；有多少行不影响切法，
+        行与行之间不串，末尾不满一块的行既不读表外也不写表外。
         """
-        with T.Kernel(NUM_BLOCKS) as bx:
-            a = T.alloc_shared((bm, bk), "float32")
-            w = T.alloc_shared((bn, bk), "float32")
-            cl = T.alloc_shared((bm, bn), "float32")
-            with T.Cube():
-                for chunk in T.serial(T.ceildiv(m, bm * NUM_BLOCKS)):
-                    my = chunk * NUM_BLOCKS + bx
-                    for mx in T.serial(nb):
-                        # K 分块连着乘加，首轮 clear_accum 清零，后续续在同一个 UB 格子里
-                        for ko in T.serial(T.ceildiv(k, bk)):
-                            T.copy(A[my * bm, ko * bk], a)
-                            T.copy(W[mx * bn, ko * bk], w)
-                            T.gemm(a, w, cl, transpose_B=True, clear_accum=ko == 0)
-                        # 收尾标量化：加偏置、按需压负为零（910B 无 SimtVF/T.Parallel）
-                        for i in T.serial(bm):
-                            for j in T.serial(bn):
-                                v = cl[i, j] + bias[mx * bn + j]
-                                if act_mode == 1:
-                                    if v < 0:
-                                        v = 0.0
-                                cl[i, j] = v
-                        T.copy(cl, C[my * bm, mx * bn])
+        with T.Kernel(nb) as mx:
+            a_ub = _alloc_tile(T, (bm, bk), "float32")
+            w_ub = _alloc_tile(T, (bn, bk), "float32")
+            c_ub = _alloc_tile(T, (bm, bn), "float32")
+            acc = T.alloc_var("float32", T.float32(0.0))
+            v = T.alloc_var("float32", T.float32(0.0))
+            for my in T.serial(T.ceildiv(m, bm)):
+                row0 = my * bm
+                # 清零（标量置 0，不用 T.clear：910B UB 上会生成坏 float2 store）
+                for i in T.serial(bm):
+                    for j in T.serial(bn):
+                        c_ub[i, j] = T.float32(0.0)
+                for ko in T.serial(nk):
+                    # W 块：N/K 全常量且整除 ⇒ 永不越界，整块 GM→UB 交搬运
+                    T.copy(W[mx * bn, ko * bk], w_ub)
+                    # A 块：行轴是活的 ⇒ 夹址标量填装，无效行记 0，杜绝越界读
+                    for i in T.serial(bm):
+                        row = row0 + i
+                        rc = T.min(row, m - 1)
+                        for kk in T.serial(bk):
+                            a_ub[i, kk] = T.if_then_else(row < m, A[rc, ko * bk + kk],
+                                                         T.float32(0.0))
+                    # 标量三重循环：c[i,j] += Σ_kk A[i,kk]·W[j,kk]（W 按 (N,K) 存 ⇒ 天然右翻方向）
+                    for i in T.serial(bm):
+                        for j in T.serial(bn):
+                            acc = T.float32(0.0)
+                            for kk in T.serial(bk):
+                                acc = acc + a_ub[i, kk] * w_ub[j, kk]
+                            c_ub[i, j] = c_ub[i, j] + acc
+                # 收尾：加偏置、按需压负为零，逐格落全局并按运行时行号守卫（尾行不碰）
+                for i in T.serial(bm):
+                    row = row0 + i
+                    if row < m:
+                        for j in T.serial(bn):
+                            v = c_ub[i, j] + bias[mx * bn + j]
+                            if act_mode == 1:
+                                if v < 0:
+                                    v = T.float32(0.0)
+                            C[row, mx * bn + j] = v
 
     return gemm_impl
+
+
+def gemm_asc_impl(A, W, bias, C, n: int, k: int, bm: int, bn: int, bk: int, act_mode: int):
+    """昇腾 910B 正文＝可移植标量体（P1-1f 改道，D-cube1 correctness 轨）。
+
+    与 cpu 侧共用 `gemm_scalar_body` 这一份算式，只是语言模块换成 `tilelang.ascend.language`：
+    零 `T.Cube`/零 `T.gemm`/零 SimtVF/零 L0C-L1 参与，搬 W 用 `T.copy`(GM→UB)，其余全标量。
+    这样 cpu 轨能真跑当 oracle、ascend 轨只判编译，数值在本地就闭环（cube 形态那套 V1/V2 stride
+    单位与 GM→L1 分形布局的未证真参数，一律不再出现在本件的依赖里）。
+
+    :return: 追踪好的 PrimFunc（交给 tilelang.compile(target="ascend")，判决见
+        reconcile/S_cpu_oracle.py --ascend 与 reconcile/verify_gemm.py）。
+    """
+    return gemm_scalar_body(ascend_env.dialect(ascend_env.TARGET_ASCEND), A, W, bias, C,
+                            n=n, k=k, bm=bm, bn=bn, bk=bk, act_mode=act_mode)
 
 
 def _largest_block(total: int) -> int | None:
