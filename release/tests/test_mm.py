@@ -54,7 +54,11 @@ def test_real_processor_pad_expansion():
     import glob
     from PIL import Image
     from transformers import AutoProcessor
-    repo = pl.Path(glob.glob("bench/ms_models/models/*Qwen3.5-0.8B*/snapshots/master")[0])
+    repos = glob.glob("bench/ms_models/models/*Qwen3.5-0.8B*/snapshots/master")
+    if not repos:   # skip-when-missing（R-P1-4 统一口径）：真快照在 bench/（gitignored 按设计不入库），
+                    # 与 test_assets.py:40 real_only 同一判据与措辞；glob(...)[0] 的 IndexError 是缺件伪影。
+        pytest.skip("真快照不在 bench/ms_models（B2 要真下载才有；p2-08 pad 账回归用例待 host 盘上跑）")
+    repo = pl.Path(repos[0])
     proc = AutoProcessor.from_pretrained(str(repo))
     img = Image.new("RGB", (224, 224), (0, 128, 255))
     msgs = [{"role": "user", "content": [{"type": "image", "image": img},
@@ -71,7 +75,9 @@ def test_vision_pack_replay_zero_online():
     from production.teachers.cache import DistCache
     from production.teachers.vision import VisionTeacher
     cache = DistCache("bench/teacher_cache")
-    assert len(cache) >= 10, "p2-02 B3 视觉伪标包缺位"
+    if len(cache) < 10:   # skip-when-missing（R-P1-4 统一口径）：伪标包是 p2-02 B3 离线产物副本，
+                         # bench/ 按设计不入库——"包缺位"是环境事实，不是回放语义回归。
+        pytest.skip(f"p2-02 B3 视觉伪标包缺位：bench/teacher_cache 不在库（实得 {len(cache)} 行，需 >=10）")
     teacher = VisionTeacher(cache, mode="pack")
     key_row = next(iter(cache.rows())) if hasattr(cache, "rows") else None
     stats_before = getattr(teacher, "stats", None)

@@ -22,6 +22,18 @@ CPU = torch.device("cpu")
 TOL = 2e-2
 
 
+# 设备门（R-P1-4 归因，先证后改）：下面四条用例走 get_compiled 的"方言路"——backends.py:146
+# 的第一道闸 `tilelang_available()` 三段判据含"本机真有 MPS"（backends.py:88），ubuntu 无 MPS
+# 时 builder 压根不被调用：计数 0、警告不发、失败记忆无从登记。这是**设备条件用例缺门**
+# （环境伪影），不是回退逻辑回归——门照 test_assets.py:41 的 MPS 纪律口径设 skip，
+# 不改产品代码语义；skip 只认"真没有 MPS"，host（有 MPS）照跑不豁免。
+need_dialect_host = pytest.mark.skipif(
+    not torch.backends.mps.is_available(),
+    reason="方言路用例需真有 MPS 的机器（get_compiled 的 tilelang_available() 判据含 MPS）；"
+           "ubuntu 无 MPS 时 builder 不被调用，红的是探测口径而非回退逻辑（R-P1-4，见 docs/ci_baseline_triage.md §2）",
+)
+
+
 @pytest.fixture(autouse=True)
 def _clean_compile_cache():
     """缓存行为用例必须从干净态起步（R16 教训的 CI 实锤：本机用例顺序侥幸干净≠任何环境干净）。
@@ -94,6 +106,7 @@ def test_env_force_tilelang_still_needs_real_probe():
 # ---------------------------------------------------------------- 编译缓存与计数
 
 
+@need_dialect_host
 def test_get_compiled_builds_once_and_caches():
     """同一 key 只构建一次，第二次直接命中缓存且不动计数。"""
     calls = []
@@ -109,6 +122,7 @@ def test_get_compiled_builds_once_and_caches():
     assert backends.compiled_keys() == ("k1",)
 
 
+@need_dialect_host
 def test_get_compiled_counts_per_key():
     """不同 key 各自编译，计数如实增长。"""
     backends.get_compiled("a", lambda: 1)
@@ -130,6 +144,7 @@ def test_get_compiled_skips_builder_when_unavailable():
 # ---------------------------------------------------------------- 编译失败回退（spec 场景）
 
 
+@need_dialect_host
 def test_compile_failure_warns_records_and_returns_none():
     """builder 抛异常 → 一次显式 RuntimeWarning + 登记阻塞点 + 返回 None（异常不外泄给业务）。"""
     with pytest.warns(RuntimeWarning, match="回退") as caught:
@@ -141,6 +156,7 @@ def test_compile_failure_warns_records_and_returns_none():
     assert "MSL 不支持" in blockers["gemm|n=8|k=8"]
 
 
+@need_dialect_host
 def test_failed_key_is_not_retried_and_warns_only_once():
     """失败过的 key 不再重试、不再重复告警（否则每层每步都要刷一条警告）。"""
     calls = []

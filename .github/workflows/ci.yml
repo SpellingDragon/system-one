@@ -29,8 +29,15 @@ jobs:
   release-gates:                 # 评审 2.2.3：release/ 的 300+ 测试此前零 CI 覆盖 —— 双重 fixture 能活着入库的结构性原因
     runs-on: ubuntu-latest
     timeout-minutes: 30          # 常规优化：大包安装 + 全量测试，不设上限会白烧 runner 六小时
-    # ⚠ 基线采集期：红项三分归因后转正式门（本变更引入 / 既有缺陷 / 环境伪影）—— design「风险与回退」第 3 条。
-    #   转正式门 = 删下面这一行 continue-on-error，其余一字不动；归因凭据 = 本 job 的「基线摘要」step 与上传的日志工件。
+    # ⚠ 归因已立、翻转待 CI 实况（R-P1-4，台账 docs/ci_baseline_triage.md；design「风险与回退」第 3 条：先归因、不静默放行）：
+    #   首跑 38052186621 的 11 红 = 资产缺件×6（skip-when-missing 门已立，应转 SKIP）
+    #                     + 设备条件×4（MPS 门已立，ubuntu 应转 SKIP）
+    #                     + KNOWN-ENV×1（test_longctx::test_sliding_routes_agree_with_mask_reference，
+    #                       逐位相等断言平台敏感，**故意不 skip**——skip 会掩盖真回归）。
+    #   翻转条件（两条其一）= 下一次 ubuntu run `0 failed`；或唯一红仅剩上述 KNOWN-ENV 一条
+    #     且编排者已另行裁决（放宽容差属 sys1 侧口径，或显式 xfail(strict) 挂台账）。
+    #   本地全绿 ≠ ubuntu 全绿（BLAS/指令集与 bench/ 缺件差异），故翻转由编排者看 CI 实况后执行。
+    #   翻转操作 = 删下面这一行 continue-on-error，其余一字不动。
     continue-on-error: true
     defaults:
       run: { shell: bash }

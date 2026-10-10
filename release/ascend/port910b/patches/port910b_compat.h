@@ -832,14 +832,21 @@ __aicore__ inline void asc_copy_ub2gm_align(__gm__ uint8_t *dst, __ubuf__ uint8_
 //   asc_set_gm2l1_nz_para / asc_copy_gm2l1_nd2nz / ascend_gemm_l1<...>(模板体)
 //   asc_copy_l12l0a/b(_transpose) / asc_mmad / asc_lock/unlock / asc_copy_l0c2gm
 // 建材（全部 raw 指针，无需 TPipe/LocalTensor；a11/a16/a17 实测签名）：
-//   copy_gm_to_cbuf 原生 7 参   —— dav_c220 data_copy_impl.h:92 同款调法
+//   copy_gm_to_cbuf_multi_nd2nz_b8/b16/b32s —— dav_c220 11 参 ND2NZ 件（P1-1k 写侧；
+//     sema D1/D5/D6 rc=0。旧 8 参 copy_gm_to_cbuf = DataCopyGM2L1Impl，ND 线性块拷贝
+//     不产 NZ，本路弃用——X_FRACTAL_EVIDENCE §5.4/§6）
 //   LoadData2DL12L0ACal/B2Cal    —— asc/impl/basic_api/dav_c220/kernel_operator_mm_impl.h
 //   MmadCal<T,U,S>(cc,ca,cb,MmadParams) —— bf16/fp16/fp32/int8 组合官方支持
 //   FixpipeL0C2UBImpl + copy_ubuf_to_gm —— L0C→GM 两段式（fix 不支持 32bit 直出 GM）
-// 上卡待证真点（首版 best-effort，注释处标 VERIFY）：
-//   V1 gm2l1 参数单位（rowBytes/rows 的 32B 块换算）与 NZ padFuncMode
-//   V2 L12L0 startIndex/repeatTimes 与 950 mStep/kStep 的映射方向
-//   V3 l0c2gm 的 nSize/mSize/srcStride 分块步距
+// VERIFY 状态（P1-1k 落 X 取证成套，2026-10-11；编号= X_FRACTAL_EVIDENCE §8）：
+//   V1 已关闭为定论：GM/L1 侧 stride/len 单位 = 32B 块（DEFAULT_C0_SIZE=32，地址模型
+//     kernel_check_data_copy_overflow.h:505-520）；GM→L1 必须走 ND2NZ 件；padFuncMode 一支
+//     作废（2201 ND2NZ 件无该槽）。
+//   V2 方向已定论（§5.2 四条硬规则）：startIndex≡0（二维起点折进 src 指针）、
+//     repeatTimes=kStep（u8）、srcStride=row16 块数、M 向外层 for 拆趟、sid≡0（含 P0
+//     止血：sid 槽不再吃 IR m_start）。dst 侧步进/gap 未定 → 各件 U2/U3。
+//   V3 l0c2gm 的 nSize/mSize/srcStride 分块步距 —— 本轮未取证，保留。
+//   未定论 U1–U6 总表见 X_FRACTAL_EVIDENCE §8，随真机 E-1/E-2/E-4 收口。
 // ════════════════════════════════════════════════════════════════════════════
 #ifndef TL_ASCEND_SIMT
 #ifdef TL_PORT910B_NATIVE_TYPES
@@ -856,60 +863,158 @@ enum asc_relu_pre_mode : unsigned char { ASC_RELU_MODE_OFF = 0, ASC_RELU_MODE_ON
 #endif
 
 // NZ 参数：CCE 禁可变成体全局（a2k3 实证）→ 一期 set 空实现，
-// c0_stride 语义由 copy 侧固定块式搬运承担；V1' 上卡数值证真。
+// c0_stride 语义已由 P1-1k 写侧自算 dstNzC0Stride 承担（提案“不改项”：保持空实现；
+// 若改用 codegen args[10] 需加形参 = 接口扩张，须 codegen 同窗，本窗禁改）。
 __aicore__ inline void asc_set_gm2l1_nz_para(int en, int rchg, uint16_t c0_stride, int pad) {
   (void)en; (void)rchg; (void)c0_stride; (void)pad;
 }
 __aicore__ inline void asc_set_l0c_copy_nz_para(int en, int a, int b) { (void)en; (void)a; (void)b; }
 __aicore__ inline void asc_set_copy_pad_val(int v) { (void)v; }
 
-// GM→L1（ND/DN 首版同路：行块连续搬运。V1：NZ 语义在 padFuncMode 与块步距上卡定）
+// GM→L1（P1-1k 落提案 §2）：910B 官方 Matmul 写 L1 只有 ND2NZ/NZ2NZ 两路
+//   （data_copy_wrapper_nd.h:41-115 / data_copy_wrapper_nz.h:39-80），不存在“ND 直写
+//   L1 喂 cube”。旧形 8 参 copy_gm_to_cbuf 与 DataCopyGM2L1Impl 逐字同款
+//   （kernel_operator_data_copy_impl.h:83-108）→ L1 落行主序 ND，而读侧 V1 的
+//   startIndex 文档语义 = Fractal matrix ID 按分形块寻址（kernel_operator_mm_intf.h:26-36），
+//   且 (void)cols 丢了 IR d_value、asc_set_gm2l1_nz_para 空实现 → c0 pitch 从未生成
+//   = 布局侧根因（X_FRACTAL_EVIDENCE §6）。改走 11 参 ND2NZ 件，按 sizeof(ST) 选族。
+// 字段单位（官方文档 kernel_operator_data_copy_intf.h:44-56 + 地址模型
+//   kernel_check_data_copy_overflow.h:505-520）：nValue/dValue/srcNdMatrixStride/
+//   srcDValue=元素；dstNzC0Stride/dstNzNStride=**32B 块**；dstNzMatrixStride=元素。
+// 取值照抄官方 tiling（data_copy_wrapper_nd.h:74-97）：ndNum=1、srcNdMatrixStride=0、
+//   dstNzC0Stride=Ceil(height,16)*16、dstNzNStride=1、dstNzMatrixStride=0；
+//   sid 传字面 0（data_copy_impl.h:275；D2 探针证 sid 同族 4-bit [0,15]）。
+// IR 口径（copy.cc:401-410 + codegen_ascend.cc:1458 逐位透传）：rowBytes=args[3]=
+//   src_row_stride_bytes（GM **全行宽**，恰是官方 gCol 的语义）、nRows=args[5]=n_value
+//   （height）、cols=args[6]=d_value（width）。
+// VERIFY U1：dstNzC0Stride(32B 块) 与读侧 srcStride(row16 分形块) 是同一物理量的两种
+//   单位——不变式 `codegen 的 L1 outer1 == Ceil(nRows,16)`（bf16：srcStride*16 块 == c0s）。
+//   §12 感知不到 codegen buffer extent，static 一致性检查需 codegen 同窗（本窗禁改）→
+//   以注释钉死该不变式，随 E-1（位型回读）闭合。
 template <typename DT, typename ST>
 __aicore__ inline void asc_copy_gm2l1_nd2nz(__cbuf__ DT *dst, __gm__ ST *src,
                                             int rowBytes, asc_load_l2_cache_mode mode,
                                             int nRows, int cols, int pad1, int pad2) {
-  (void)mode; (void)cols; (void)pad1; (void)pad2;
-  uint16_t const blk = (uint16_t)((unsigned)rowBytes >> 5);  // VERIFY V1: 32B 单位
-  // 官方 8 参（dav_c220 data_copy_impl.h:92）：sid,blockCount,blockLen,srcStride,dstStride,pad
-  copy_gm_to_cbuf((__cbuf__ void *)(uintptr_t)dst, (__gm__ void *)(uintptr_t)src, (int8_t)0,
-                  (uint16_t)nRows, blk, blk, blk, (pad_t)0);
+  (void)mode; (void)pad1; (void)pad2;  // l2_cache_ctrl 在 2201 ND2NZ 件无对应槽；pad 区由
+                                       // AscendInsertOOBPadding 预处理 / asc_fill_l1 收尾（U4）
+  __cbuf__ ST *const d = (__cbuf__ ST *)(uintptr_t)dst;
+  __gm__ ST *const s = (__gm__ ST *)(uintptr_t)src;
+  uint32_t const gColW = (uint32_t)((unsigned)rowBytes / (unsigned)sizeof(ST));  // 官方 gCol（元素）
+  uint16_t const h = (uint16_t)nRows;   // nValue（行/高，单位=元素）
+  uint16_t const w = (uint16_t)cols;    // dValue（宽，单位=元素）
+  uint16_t const c0s = (uint16_t)((((unsigned)nRows + 15u) / 16u) * 16u);  // dstNzC0Stride(32B 块)
+  if (gColW < 0xffffU) {  // 官方 else 支（wrapper_nd.h:108）：单发，srcDValue=gCol
+    uint16_t const gCol = (uint16_t)gColW;
+    if constexpr (sizeof(ST) == 1) {
+      copy_gm_to_cbuf_multi_nd2nz_b8((__cbuf__ int8_t *)(uintptr_t)d, (__gm__ int8_t *)(uintptr_t)s,
+          (int8_t)0, (uint16_t)1, h, w, (uint16_t)0, gCol, c0s, (uint16_t)1, (uint16_t)0);
+    } else if constexpr (sizeof(ST) == 2) {
+      copy_gm_to_cbuf_multi_nd2nz_b16((__cbuf__ bfloat16_t *)(uintptr_t)d,
+                                      (__gm__ bfloat16_t *)(uintptr_t)s,
+          (int8_t)0, (uint16_t)1, h, w, (uint16_t)0, gCol, c0s, (uint16_t)1, (uint16_t)0);
+    } else {
+      copy_gm_to_cbuf_multi_nd2nz_b32s((__cbuf__ float *)(uintptr_t)d, (__gm__ float *)(uintptr_t)s,
+          (int8_t)0, (uint16_t)1, h, w, (uint16_t)0, gCol, c0s, (uint16_t)1, (uint16_t)0);
+    }
+  } else {
+    // 官方 2201 越界兜底（data_copy_wrapper_nd.h:99-107 逐语义复刻）：全部字段 u16
+    //   （kernel_struct_data_copy.h:185-192），gCol >= UINT16_MAX 时 M 向**逐行拆趟**：
+    //   nValue=1、srcDValue=dValue=width（gCol 不再进任何槽 → 无截断）；dst 每趟前进
+    //   1 个 32B 块（= 32/sizeof(ST) 个元素）、src 每趟前进 gCol 个元素。代价 = nRows 条
+    //   指令（纯性能面，语义不损，官方同款）。
+    int const c0e = 32 / (int)sizeof(ST);  // DEFAULT_C0_SIZE=32 → 每块元素数
+    for (int i = 0; i < nRows; ++i) {
+      if constexpr (sizeof(ST) == 1) {
+        copy_gm_to_cbuf_multi_nd2nz_b8(d + (int64_t)i * c0e, s + (int64_t)i * gColW,
+            (int8_t)0, (uint16_t)1, (uint16_t)1, w, (uint16_t)0, w, c0s, (uint16_t)1, (uint16_t)0);
+      } else if constexpr (sizeof(ST) == 2) {
+        copy_gm_to_cbuf_multi_nd2nz_b16((__cbuf__ bfloat16_t *)(uintptr_t)(d + (int64_t)i * c0e),
+                                        (__gm__ bfloat16_t *)(uintptr_t)(s + (int64_t)i * gColW),
+            (int8_t)0, (uint16_t)1, (uint16_t)1, w, (uint16_t)0, w, c0s, (uint16_t)1, (uint16_t)0);
+      } else {
+        copy_gm_to_cbuf_multi_nd2nz_b32s((__cbuf__ float *)(uintptr_t)(d + (int64_t)i * c0e),
+                                         (__gm__ float *)(uintptr_t)(s + (int64_t)i * gColW),
+            (int8_t)0, (uint16_t)1, (uint16_t)1, w, (uint16_t)0, w, c0s, (uint16_t)1, (uint16_t)0);
+      }
+    }
+  }
 }
 template <typename DT, typename ST>
 __aicore__ inline void asc_copy_gm2l1_dn2nz(__cbuf__ DT *dst, __gm__ ST *src,
                                             int rowBytes, asc_load_l2_cache_mode mode,
                                             int nRows, int cols, int pad1, int pad2) {
-  asc_copy_gm2l1_nd2nz(dst, src, rowBytes, mode, nRows, cols, pad1, pad2);  // VERIFY V1
+  // dn2nz 本窗**不改**（提案 §2 不改项）：2201 另有 copy_gm_to_cbuf_multi_dn2nz
+  //   （cce_aicore_intrinsics.h:980），其 Nd2NzParams 同族字段文档为 dn 版
+  //   （srcDnMatrixStride/srcDValue），与 nValue/dValue 的互换关系需 compile+真机一次判别
+  //   （X_FRACTAL_EVIDENCE §8-E1 的 dn 扩展）→ 保持委托。注意：P1 落地后本委托=以 IR
+  //   互换过的 n_value/d_value（copy.cc:399-402：transpose 路 n=cols、d=rows）发 ND2NZ
+  //   件——与官方 B 侧 tiling 口径同向，但 dn 专属件差异未证 → VERIFY U5/E-1(dn)。
+  asc_copy_gm2l1_nd2nz(dst, src, rowBytes, mode, nRows, cols, pad1, pad2);  // VERIFY U5
 }
 
-// P1-1d 修复（2026-10-10）：官方 LoadData2DL12L0ACal（mm_impl.h:32/35）发 **9 参**
-//   (dst,src,startIndex,repeatTimes,srcStride,dstGap,sid,transpose(0/1),inc)。
-// 旧 trunk 只发 7 参——把 addrCalMode 顶进 sid 位、漏 transpose 位、且 codegen 传入的
-//   sid 被 (void) 丢弃 → DMA 2D 描述符字段错位 = aicore 507015（非法访问）头号根因。
-//   此处按官方位序补齐：our dstStride→dstGap 槽、sid→sid 槽（回穿）、transpose=false、inc=0。
-//   单位（元素/块）仍标 V2，上卡数值定夺；本修只消除结构性错位（编译可过但取位错的那类）。
+// P1-1d（2026-10-10）遗留结论：官方 LoadData2DL12L0ACal（mm_impl.h:32/35）发 **9 参**
+//   (dst,src,startIndex,repeatTimes,srcStride,dstGap,sid,transpose(0/1),inc) —— **选族正确**，
+//   P1-1d 补齐 9 参后仍崩，说明病灶在槽位（考古 P1-1j/X 结案）。
+// P1-1k（2026-10-11，落提案 §1/§3）逐槽纠正（X_FRACTAL_EVIDENCE §7.2 错位表）：
+//   ・第 7 槽 sid = 4-bit（sema 实证 [0,15]，**运行期值不检查** §2.4 RT3 rc=0）；旧形把
+//     codegen args[2]（= IR **m_start**，row16 块起点，0..127 量级，copy.cc:457/535-538）
+//     回穿进 sid → 越界即非法 L1 分区 = 507015 头号嫌疑。本窗 sid≡0（官方 Matmul 恒 0，
+//     §5.2 规则 4），m_start 的 M 向语义改由本件指针+拆趟承担（P0 止血并入 P2，P0 的
+//     “钉 0 判别”对照件保留在 X_probe_proposal.py::P0_bleed_sid0，供下窗 E-3 二选一）。
+//   ・startIndex 官方语义 = Fractal matrix ID，承载不了二维起点 → 折进 src 指针（规则 1）；
+//     repeatTimes(u8) 的正确轴向 = kStep（旧 (uint8_t)mStep 轴选反，且 IR m_step>255 还
+//     8-bit 静默截断）。2201 无 2DV2（LoadData2DParamsV2 运行期 NOT_SUPPORT，§5.3）→
+//     V2 语义只能“折指针 + 拆趟循环”手工降级，不存在等价单条指令。
+//   形参 `sid` → `mStart` 更名：第 3 实参一直是 IR m_start，旧名是错位放大器（§7.2 末）。
 template <typename T>
-__aicore__ inline void asc_copy_l12l0a(__ca__ T *dst, __cbuf__ T *src, int sid, int kStart,
+__aicore__ inline void asc_copy_l12l0a(__ca__ T *dst, __cbuf__ T *src, int mStart, int kStart,
                                        int mStep, int kStep, int srcStride, int dstStride) {
-  (void)kStep;
-  // VERIFY V2：startIndex=kStart(发射行块起点)、repeatTimes=mStep、srcStride 单位待卡定
-  load_cbuf_to_ca(dst, src, (uint16_t)kStart, (uint8_t)mStep, (uint16_t)srcStride,
-                  (uint16_t)dstStride, (uint8_t)sid, false,
-                  (__cce_scalar::addr_cal_mode_t)0);  // 官方 9 参位序（mm_impl.h:35）
+  // P2（按官方 V1 模板 load_to_l0a_load2d.h:41-110 降级，§5.2 四条硬规则）：
+  //   (1) 二维起点折进指针，startIndex≡0；(2) repeatTimes 沿 K/C0 = kStep；
+  //   (3) srcStride = L1 的 row16 块数（= IR src_stride，口径本就一致，§7.1）；
+  //   (4) M 向外层 for 拆 mStep 趟，每趟 src 前进 1 个分形块、dst 前进 kStep 个分形块。
+  (void)dstStride;  // VERIFY U2：假定 L0 目的紧凑（dst 侧 pitch == kStep 个分形块）；非紧凑
+                    //   须改用 dstGap 或再拆趟——官方 dstOffset=blockUseK*CUBE_MAX_SIZE/factor_，
+                    //   CUBE_MAX_SIZE 口径未抓到（X_FRACTAL_EVIDENCE §8-U2，随 E-2/E-4 标定）。
+                    // VERIFY U3：dstGap≡0（官方 L0A 路该槽 0；L0B 路为 nFraC0-1，§8-U3 未定论）。
+  int const blkElems = 16 * (int)(32 / (int)sizeof(T));  // 分形块元素数（bf16: 256；16×32B 恒等）
+  __cbuf__ T *base = (__cbuf__ T *)(uintptr_t)src + (int64_t)(kStart * srcStride + mStart) * blkElems;
+  __ca__ T *dbase = (__ca__ T *)(uintptr_t)dst;
+  if (kStep == 1) {  // 官方同款退化（blockUseK==1 支）：repeat 改沿 M、srcStride=1
+    load_cbuf_to_ca(dbase, base, (uint16_t)0, (uint8_t)mStep, (uint16_t)1, (uint16_t)0,
+                    (uint8_t)0, false, (__cce_scalar::addr_cal_mode_t)0);
+  } else {  // repeatTimes=u8：kStep>255 静默截断（§2.3 E2 实证类型）——本窗不设 ICHECK，
+            // 910B tile 的 C0 组数远低于 255，越界属真机 E-2 判别面
+    for (int i = 0; i < mStep; ++i) {  // 块线性序 block_id = k_block*pitch + m_block（VERIFY U1）
+      load_cbuf_to_ca(dbase + (int64_t)i * kStep * blkElems,
+                      base + (int64_t)i * blkElems,
+                      (uint16_t)0, (uint8_t)kStep, (uint16_t)srcStride, (uint16_t)0,
+                      (uint8_t)0, false, (__cce_scalar::addr_cal_mode_t)0);  // mm_impl.h:35 位序
+    }
+  }
 }
 template <typename T>
-__aicore__ inline void asc_copy_l12l0b(__cb__ T *dst, __cbuf__ T *src, int sid, int kStart,
+__aicore__ inline void asc_copy_l12l0b(__cb__ T *dst, __cbuf__ T *src, int mStart, int kStart,
                                        int mStep, int kStep, int srcStride, int dstStride) {
-  (void)kStep;
-  load_cbuf_to_cb(dst, src, (uint16_t)kStart, (uint8_t)mStep, (uint16_t)srcStride,
-                  (uint16_t)dstStride, (uint8_t)sid, false,
-                  (__cce_scalar::addr_cal_mode_t)0);  // 官方 9 参位序（对称 LoadData2DL12L0BCal）
+  // P2-B（提案 §3）：官方 L0B 非转置路 repeatTimes=blockUseN、srcStride=Ceil(bL1K,16)；
+  //   转置由 L1 写侧 dn2nz 承担而非 load 侧 transpose 位（load_to_l0b_load2d.h:38-92、
+  //   load_to_l0b_basic.h:111-119：cfg{startIndex=0, repeat=l0bRepeat, srcStride=l0bSrcstride,
+  //   sid=0, dstGap=l0bDststride, transpose=0, addrmode=0} + 外层 for 拆趟）。
+  //   本轮 §12 的 B 侧几何是 K-major 单趟形态，先按 A 式同款降级；N 向拆趟与 dstGap
+  //   （=nFraC0-1）留 U3/E-4 卡定。
+  (void)mStart; (void)mStep; (void)dstStride;  // VERIFY U3（§8-U3/E-4：B 侧 N 向拆趟、dstGap 真值）
+  int const blkElems = 16 * (int)(32 / (int)sizeof(T));
+  __cbuf__ T *base = (__cbuf__ T *)(uintptr_t)src + (int64_t)(kStart * srcStride) * blkElems;
+  load_cbuf_to_cb((__cb__ T *)(uintptr_t)dst, base, (uint16_t)0, (uint8_t)kStep,
+                  (uint16_t)srcStride, (uint16_t)0, (uint8_t)0, false,
+                  (__cce_scalar::addr_cal_mode_t)0);  // 对称 LoadData2DL12L0BCal（mm_impl.h）
 }
 template <typename T>
 __aicore__ inline void asc_copy_l12l0b_transpose(__cb__ T *dst, __cbuf__ T *src, int mStart,
                                                  int kStart, int mStep, int kStep, int srcStride,
                                                  int dstStride) {
   (void)kStart; (void)kStep;
-  (void)dstStride;  // VERIFY V2
+  (void)dstStride;  // VERIFY U5（§8-U5/E-5：transpose 件为双 cfg 字打包、位序未取证——本窗原样保持）
   load_cbuf_to_cb_transpose(dst, src, (uint16_t)mStart, (uint8_t)mStep, (uint16_t)srcStride,
                             (uint16_t)dstStride, false, (uint16_t)0);  // D1b 8 参（mm_impl.h:152）
 }
@@ -1051,9 +1156,9 @@ __aicore__ inline void asc_copy_l12l0a_transpose(__ca__ T *dst, __cbuf__ T *src,
                                                  int kStart, int mStep, int kStep, int srcStride,
                                                  int dstStride) {
   (void)kStart; (void)kStep;
-  (void)dstStride;  // VERIFY V2'：与 asc_copy_l12l0b_transpose 同款取舍
+  (void)dstStride;  // VERIFY U5（§8-U5/E-5：与 b_transpose 同款——位序未取证，本窗原样保持）
   load_cbuf_to_ca_transpose(dst, src, (uint16_t)mStart, (uint8_t)mStep, (uint16_t)srcStride,
-                            (uint16_t)dstStride, false, (uint16_t)0);  // VERIFY V2' 位序
+                            (uint16_t)dstStride, false, (uint16_t)0);  // VERIFY U5/E-5 位序（ hivmc 名字表示双 cfg 字，非 V1 同族）
 }
 
 #endif  // TL_PORT910B_NATIVE_TYPES

@@ -18,9 +18,9 @@
 
 ## P2 波（记录/入档，不阻塞）
 
-- [ ] R-P1-4 release-gates 正式门化（首跑基线后立）：①资产缺失用例统一 skip-when-missing 口径（bench/ 按设计不入库，7 红应转 SKIP）；②test_backends 4 红在 ubuntu 归因（tilelang 探测/环境）；③归因后删 `continue-on-error` —— 验证：ubuntu run 全绿或红项全部归因入档
-- [ ] R-P2-1 统计补强方案入档（多种子/基线扩样/Wilson 区间/needle 扩题；前置=训测分离后） —— 验证：docs 或 design 增补节存在
-- [ ] R-P2-2 合规论证入档（CC BY-NC 蒸馏权利推演、GLM API ToS 分析——标注"非法律意见"） —— 验证：docs/compliance.md 存在且含两节
+- [x] R-P1-4 release-gates 正式门化（首跑基线后立）：①资产缺失用例统一 skip-when-missing 口径（bench/ 按设计不入库，7 红应转 SKIP）；②test_backends 4 红在 ubuntu 归因（tilelang 探测/环境）；③归因后删 `continue-on-error` —— 验证：ubuntu run 全绿或红项全部归因入档
+- [x] R-P2-1 统计补强方案入档（多种子/基线扩样/Wilson 区间/needle 扩题；前置=训测分离后） —— 验证：docs 或 design 增补节存在
+- [x] R-P2-2 合规论证入档（CC BY-NC 蒸馏权利推演、GLM API ToS 分析——标注"非法律意见"） —— 验证：docs/compliance.md 存在且含两节
 
 ## 收尾
 

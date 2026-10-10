@@ -37,6 +37,16 @@ need_mps = pytest.mark.skipif(
     reason="本波禁用 MPS（派单纪律）；显式 SYS1_ALLOW_MPS=1 才放行",
 )
 
+# skip-when-missing（R-P1-4 统一口径）：针位骨架是 bench/ 装配副本，gitignored 按设计不入库；
+# 缺件＝"没装配"（环境事实），不是回归——与 test_assets.py:40 real_only、test_registry.py:46-48
+# 同一纪律。补件命令沿用 longctx.load_skeleton() 自己报的那条（longctx.py:164），不另造说法。
+HAS_SKELETON = (registry.REPO_ROOT / longctx.SKELETON_REL).is_file()
+skeleton_only = pytest.mark.skipif(
+    not HAS_SKELETON,
+    reason=f"针位骨架不在盘上：{longctx.SKELETON_REL}（bench/ 按设计不入库；先跑 "
+           "`python -m sys1.eval.registry fetch --needle`）（R-P1-4，docs/ci_baseline_triage.md §1）",
+)
+
 
 # ------------------------------------------------------------------ 假引擎（B1 专用替身）
 class FakeEngine:
@@ -87,6 +97,7 @@ SUFFIXES = [list(range(200, 239)), list(range(300, 334)), list(range(400, 451))]
 
 
 # ================================================================== A1 needle 生成器
+@skeleton_only
 def test_needle_table_is_registry_skeleton_and_deterministic():
     tbl, source = longctx.resolve_table()
     assert source == "skeleton", f"针位表应优先取 registry 骨架，实得 {source}"
@@ -96,6 +107,7 @@ def test_needle_table_is_registry_skeleton_and_deterministic():
     assert tbl == again, "同骨架两次解析必须逐字段相同（seed 固定入 registry 的镜像）"
 
 
+@skeleton_only
 def test_needle_table_from_plan_mirrors_skeleton():
     """plan 镜像与盘上骨架必须同源——不同源就说明 registry 的取随机顺序被我抄错了。"""
     disk = longctx.load_skeleton()
@@ -620,6 +632,11 @@ def test_prefix_parity_argmax_flip_is_vetoed_even_with_small_drift():
 
 
 # ================================================================== C1 因果滑窗
+# KNOWN-ENV（R-P1-4 归因，先证后判，**故不 skip**）：本用例是纯计算（compare_routes 固定 seed
+# 合成张量，零资产依赖），host arm64 绿、ubuntu x86 CPU 轮红在 `kernel_vs_masked_max_abs == 0.0`
+# 的**逐位相等**断言上——fp32 matmul/softmax 归约顺序随 BLAS/指令集而变，位等口径本身平台敏感，
+# 属数值环境伪影而非滑窗路由回归。放宽容差动的是 sys1 侧验收口径，超出本变更白名单，
+# 保留红 + 台账入档（docs/ci_baseline_triage.md §3），由编排者定夺。
 def test_sliding_routes_agree_with_mask_reference():
     rep = LA.compare_routes(200, 32, chunk=48)
     assert rep["kernel_allclose"] and rep["local_allclose"]

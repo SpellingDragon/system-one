@@ -182,11 +182,15 @@ def test_transcribe_cli_has_zh_button_and_extra_ids_cover_it():
 
 def test_transcribe_derived_fetch_is_zero_traffic_but_keeps_evidence(tmp_path):
     """派生路零流量：bytes=0、cached、resolved 指到原件，并把原件散列写进 derived_from.json 当凭据。"""
+    origin = ASM / "cmmlu-subset" / "cmmlu-subset.jsonl"
+    if not origin.is_file():   # skip-when-missing（R-P1-4 统一口径，同本文件 :146-147 的 parquet 判据）：
+        # 原件是 bench/ 装配副本，gitignored 按设计不入库；缺件时 _fetch_derived 报 FetchError
+        # （见下方 :202 那条报错路用例），那不是"零流量派生"要验收的事实层回归。
+        pytest.skip(f"cmmlu-subset 题面原件不在盘上：{origin}（先跑 `python -m sys1.eval.registry fetch --cn`）")
     pin = registry.REGISTRY["cmmlu-decision"]
     got = registry._fetch_derived(pin, tmp_path / pin.id)
     assert got["bytes"] == 0 and got["cached"] is True and got["endpoint"] == "local"
     assert got["resolved"].startswith("derived:cmmlu-subset@")
-    origin = ASM / "cmmlu-subset" / "cmmlu-subset.jsonl"
     claim = json.loads((tmp_path / pin.id / "derived_from.json").read_text(encoding="utf-8"))
     assert claim["from"] == "cmmlu-subset" and claim["origin_bytes"] == origin.stat().st_size
     assert claim["origin_sha256"] == registry._sha256(origin), "版本凭证必须是从原件实测出来的"
