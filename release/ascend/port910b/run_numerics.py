@@ -35,7 +35,8 @@ DT = {"float16": "fp16", "float32": "fp32", "bfloat16": "bf16"}
 
 def _t(shape, dtype, scale=1.0):
     import torch
-    t = getattr(torch, DT[dtype])(torch.randn(*shape, device="npu", dtype=torch.float32) * scale)
+    TORCH_DT = {"fp16": "float16", "fp32": "float32", "bf16": "bfloat16"}
+    t = getattr(torch, TORCH_DT[DT[dtype]])(torch.randn(*shape, device="npu", dtype=torch.float32) * scale)
     return t
 
 
