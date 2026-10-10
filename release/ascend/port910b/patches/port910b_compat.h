@@ -949,6 +949,97 @@ __aicore__ inline void asc_copy_l0c2gm(__gm__ float *dst, __cc__ float *src, int
 #endif  // TL_PORT910B_NATIVE_TYPES
 #endif  // !TL_ASCEND_SIMT (§12)
 
+// ════════════════════════════════════════════════════════════════════════════
+// §12 补件：asc_fill_l1 — 910B 后端（p2-13 甲路 P1-4b）. Anchor: TL910B_SEC12_FILL_L1
+//
+// 挡路事实（前波 K 定位，本波复证）：codegen 在每个 asc_copy_gm2l1_nd2nz 之后对
+//   未填满的 L1 尾区发射（codegen_ascend.cc:1534-1555 EmitFillL1_，7 参 IR op）：
+//     asc_fill_l1((__cbuf__ uint16_t|uint32_t*)((__cbuf__ uint8_t*)base + byte_off),
+//                 (uint32_t)value, { .repeat=…, .blk_num=…, .dst_gap=… });
+//   §12 无此件 → dW(l0tr)/lora 报 `use of undeclared identifier 'asc_fill_l1'`。
+//
+// 语义（ascend/op/fill.cc:99-116 LowerL1Fill + ascend/op/builtin.h:230-241）：
+//   · blk_num / dst_gap / dst_pitch_blocks 一律以 **32B 块**计（byte_offset=
+//     (c0_start*pitch + row_start)*32 亦据此）；repeat = c0_range.extent / C0（列组数）。
+//   · 地址递推：趟 i 起点 = byte_offset + i*(blk_num+dst_gap)*32 字节，每趟写 blk_num 块。
+//   · value **恒为 0**（fill.cc:87 ICHECK CanProveEqual(fill_value, 0)，原文
+//     "Ascend L1 fill currently supports only zero"）→ 位型落在哪个字段数值上都等价。
+//   · fill_word_bits ∈ {16,32} → 发射类型 uint16_t/uint32_t 恰与官方
+//     SET_L1_2D.b16 / SET_L1_2D.b32 两条编码一一对应（无需手工选重载）。
+//
+// 后端与 config 位打包的**权威出处**（均可在容器内复跑）：
+//   (1) CCE intrinsic：cce_aicore_intrinsics_3101.h:4233-4263（#3982-#3991）
+//         void set_l1_2d(__cbuf__ T *dst, int64_t config);
+//         ASM: SET_L1_2D.b16|.b32 [dst],config   Pipe: PIPE_MTE2
+//         .b16 ← half/bfloat16_t/int16_t/uint16_t；.b32 ← float/int32_t/uint32_t
+//       （cce_aicore_intrinsics.h:2162 / _3101.h:830 另有同 builtin 的变长 alias 声明）
+//   (2) AscendC 薄封装：asc/impl/basic_api/dav_c220/kernel_operator_cube_others_impl.h:579
+//         template <typename T> SetL12D(__cbuf__ T *dst, int64_t config){set_l1_2d(...);}
+//   (3) **位段唯一实证**＝官方 set_l1_2d 的 HiVM 实现体。取自
+//       tools/bisheng_compiler/.../bishengir/bin/hivmc 内嵌的 dav-c220-cube bitcode
+//       （按 `BC\xc0\xde` 魔数切块 → llvm-link → bisheng -x ir -S -emit-llvm 反汇编），
+//       _mlir_ciface_set_l1_2d_{int8_t,half,float,bfloat16_t} 四条 dtype 路形态一致：
+//         store i64 1, ... %repeat_time                      ; repeat = 1
+//         %blk = udiv i64 (size*sizeof(T) + 31), 32          ; blk_num = ceil(字节/32)
+//         %cfg = or i64 (shl i64 %blk, 16), %repeat_time     ; config = (blk_num<<16)|repeat
+//         call void @llvm.hivm.CREATE.CBUF.MATRIX.{v2.u16|f16.h|f32.h|bf16.ori}(
+//              ptr addrspace(2) %dst, i64 %cfg, <16bit %value>) ; !asan.cce.api.name=set_l1_2d
+//       ⇒ 实证：**cfg[15:0]=repeat_time，cfg[31:16]=blk_num（32B 块数）**；value 在 HiVM
+//          侧是**独立操作数**（16 位位型；float 路先 fptrunc→half，int8 路字节 4 路复制）。
+//
+// 本件三处不确定各标一处 VERIFY（数值域待上卡；本波只判"编得出 + 不回归"）：
+//   V4 value 位段：HiVM 有独立 value 操作数，而 CCE 形只 (dst,config) 两参 ⇒ 位型必须
+//      并入 cfg 高 32 位 [63:32]。**此步系推断**（hivm→llvm 降级取不到 asm 位表）。
+//      现网 value 恒 0 ⇒ [63:32] 无论解释成何字段都是 0，数值无害；若日后放开非 0 填充，
+//      必须上卡重定该位段。
+//   V5 dst_gap：官方 2D-set 的 cfg **没有 gap 字段**（带 src_gap<<32|dst_gap<<48 的是同族
+//      别的 packed-cfg，见 cce_aicore_intrinsics_3101.h:1067-1068/2147-2148）⇒ 本件**拆趟**：
+//      每趟只发一条 "repeat=1 + blk_num=blk_num" 的官方实证形指令，地址手推
+//      (blk_num+dst_gap)*32 字节。代价＝指令数从 1 变 repeat（纯性能面，语义不损）。
+//   V6 repeat 步距：官方以 repeat=1 铺满连续 blk_num 块，说明 repeat>1 时趟间距即
+//      blk_num（gap 语义只能靠拆趟表达）；故 gap=0 时拆趟与单条 repeat=r 等价。待卡证真。
+// ════════════════════════════════════════════════════════════════════════════
+#ifndef TL_ASCEND_SIMT
+#ifdef TL_PORT910B_NATIVE_TYPES
+#ifndef TL910B_SEC12_FILL_L1
+#define TL910B_SEC12_FILL_L1
+
+// codegen 以 designated-init 聚合体传第 3 参（-std=c++20，实证见 contrib/bisheng.py:111）
+// ⇒ 成员声明序**必须**与 .repeat/.blk_num/.dst_gap 同序，否则 C++20 拒绝。
+struct asc_fill_l1_params {
+  uint64_t repeat;   // 趟数（C0 列组数）
+  uint64_t blk_num;  // 每趟写的 32B 块数
+  uint64_t dst_gap;  // 相邻趟跳过的 32B 块数
+};
+
+// SET_L1_2D 的 config 打包（位段依据见块头 (3)：[15:0]=repeat、[31:16]=blk_num）。
+// 16 位截断在此安全：L1=1MB ⇒ blk_num<=32768，repeat 为 C0 组数（远小于 2^16）。
+__aicore__ inline int64_t tl910b_fill_l1_cfg(uint32_t value, uint64_t blk_num, uint64_t repeat) {
+  uint64_t const v = static_cast<uint64_t>(value);
+  return static_cast<int64_t>(((v & 0xffffffffULL) << 32)     // VERIFY V4：位段系推断（value 恒 0）
+                              | ((blk_num & 0xffffULL) << 16)  // 实证：ceil(bytes/32) 块数
+                              | (repeat & 0xffffULL));         // 实证：趟数
+}
+
+// dst 元素类型由 codegen 按 fill_word_bits 给定（uint16_t→SET_L1_2D.b16 /
+// uint32_t→SET_L1_2D.b32，官方 #3988/#3990），故直接透传给 dtype 重载即可。
+// __cbuf__ 不可标量解引用（K 波实测 "only __ubuf__/__gm__/local can be dereferenced"）
+// ⇒ 唯一可行路就是这条 DMA 填塞件；地址推进沿用 §12 的 (uintptr_t) 中转手法。
+template <typename T>
+__aicore__ inline void asc_fill_l1(__cbuf__ T *dst, uint32_t value, asc_fill_l1_params p) {
+  if (p.repeat == 0 || p.blk_num == 0) return;  // 空尾区不发射（codegen 可能给 0）
+  __cbuf__ uint8_t *const raw = (__cbuf__ uint8_t *)(uintptr_t)dst;
+  uint64_t const step_bytes = (p.blk_num + p.dst_gap) * 32ULL;  // 32B 块单位（见块头语义）
+  int64_t const cfg = tl910b_fill_l1_cfg(value, p.blk_num, 1);  // 每趟 repeat=1：官方实证形
+  for (uint64_t i = 0; i < p.repeat; ++i) {                     // VERIFY V5/V6：拆趟代 gap
+    set_l1_2d((__cbuf__ T *)(uintptr_t)(raw + i * step_bytes), cfg);
+  }
+}
+
+#endif  // TL910B_SEC12_FILL_L1
+#endif  // TL_PORT910B_NATIVE_TYPES
+#endif  // !TL_ASCEND_SIMT (§12 asc_fill_l1)
+
 #ifndef TL_PORT910B_COMPAT_GAP_D_H
 #define TL_PORT910B_COMPAT_GAP_D_H
 
