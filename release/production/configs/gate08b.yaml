@@ -15,7 +15,8 @@ threads: 8
 seed: 20261005                  # 同种子 → 同桌序（两档只差批规模时才可逐点对比）
 
 # ── 数据（p2-03 registry 口，训练循环不造题）──
-axis: quality
+# 2026-10-10 audit-remediation（R-P0-2）：训测分离——旧值走的是评测考卷轴（quality＝test 档），旧 dev run 的 quality 轴记录见 run 档，不回写
+axis: train
 limit: 0                        # 0 = 全量（正式档不封顶）
 max_length: 8192                # 超长直接丢；截半截题会把读点位切掉
 

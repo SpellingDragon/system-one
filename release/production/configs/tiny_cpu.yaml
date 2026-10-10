@@ -16,7 +16,8 @@ threads: 4
 seed: 20261005
 
 # ── 数据（p2-03 registry 口）──
-axis: quality
+# 2026-10-10 audit-remediation（R-P0-2）：训测分离——旧值走的是评测考卷轴（quality＝test 档），旧 dev run 的 quality 轴记录见 run 档，不回写
+axis: train
 limit: 480                      # 装配封顶：spec 冒烟档写死「≤500 样本」，留 20 条余量给超限丢弃
 max_length: 512                 # 超长直接丢（不截半截题——截了读点位就落在题面中间）
 

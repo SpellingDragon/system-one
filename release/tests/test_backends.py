@@ -24,8 +24,6 @@ TOL = 2e-2
 
 
 @pytest.fixture(autouse=True)
-
-@pytest.fixture(autouse=True)
 def _clean_compile_cache():
     """缓存行为用例必须从干净态起步（R16 教训的 CI 实锤：本机用例顺序侥幸干净≠任何环境干净）。
 

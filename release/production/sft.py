@@ -1045,7 +1045,7 @@ def default_cfg() -> dict[str, Any]:
         "backbone": "qwen3-0.6b", "loader": LOADER_MINIMAL, "device": "cpu", "dtype": "float32",
         "threads": 4, "seed": 20261005, "cache_dir": None,
         # ── 数据（p2-03 registry 口）──
-        "axis": "quality", "data_dir": None, "limit": 512, "max_length": 512,
+        "axis": "train", "data_dir": None, "limit": 512, "max_length": 512,
         # ── 教师（p2-02 缓存口；训练循环零教师前向）──
         "teacher_model_id": DEFAULT_TEACHER_MODEL_ID,
         "teacher_cache": "bench/teacher_cache/p2_05_pseudo",

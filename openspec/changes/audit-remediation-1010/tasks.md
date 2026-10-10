@@ -5,10 +5,10 @@
 
 ## P0 波（并发三代理）
 
-- [ ] **R-P0-1 README 全面对账重写（代理 N）**：按"三行必填"标准重写——每个数字溯源（run-id/命令），失败同强度上门面（温度标定 ECE 恶化 0.1175→0.2267、TileLang Metal 内核慢 2–6×、训测同集自查）；删除/修正：GQA 词（实现为 MHA）、A–Z=32..57（P1 实测 38..63；32..57 属 P2 分词器并标注归属）、~40M（双口径 54.2M 总/37.8M 非嵌入）、"296 绿"（改实跑数+复现命令）、"13 子域 72 孙任务全勾"（81 条/57 勾现态）、"完全体"（改"9/9 编译绿、数值待卡"现态）、"R1–R18"（改指 skill 不写死区间）、教师实名（#scaffold-cpu 36.6M 脚手架 vs 真 4B 未载入）、GDN 反向现态=kernelized —— 验证：`grep -cE "296 绿|72 孙任务全勾|GQA|32..57|完全体|R1–R18" README.md` =0 + 交付逐数字溯源表
-- [ ] **R-P0-2 训练口切 axis:train + 守卫（代理 P）**：`sft.py` 默认与 5 份 yaml 训练口全切 `axis: train`（旧值留注释与理由）；新增守卫测试（训练配置 axis ∈ quality/test 轴即 fail；引用 registry 轴定义） —— 验证：`grep -h "axis:" release/production/configs/*.yaml` 无训练路径 quality + 守卫测试 passed + 故意注错变红自证（R14）
-- [ ] **R-P0-3 双 fixture 修复（代理 O）**：`release/tests/test_backends.py:26-29` 删重复装饰 —— 验证：`cd release && .venv/bin/python -m pytest tests -q -m "not integration"` 收集期 0 error（MPS-only 败/skip 如实计数）
-- [ ] **R-P0-4 LICENSE=MIT（代理 O）**：根目录 MIT 文本（2026，版权人=仓库署名者） —— 验证：`ls LICENSE` 且 `grep -n "MIT" refs/clone.sh` 措辞一致
+- [x] **R-P0-1 README 全面对账重写（代理 N）**：按"三行必填"标准重写——每个数字溯源（run-id/命令），失败同强度上门面（温度标定 ECE 恶化 0.1175→0.2267、TileLang Metal 内核慢 2–6×、训测同集自查）；删除/修正：GQA 词（实现为 MHA）、A–Z=32..57（P1 实测 38..63；32..57 属 P2 分词器并标注归属）、~40M（双口径 54.2M 总/37.8M 非嵌入）、"296 绿"（改实跑数+复现命令）、"13 子域 72 孙任务全勾"（81 条/57 勾现态）、"完全体"（改"9/9 编译绿、数值待卡"现态）、"R1–R18"（改指 skill 不写死区间）、教师实名（#scaffold-cpu 36.6M 脚手架 vs 真 4B 未载入）、GDN 反向现态=kernelized —— 验证：`grep -cE "296 绿|72 孙任务全勾|GQA|32..57|完全体|R1–R18" README.md` =0 + 交付逐数字溯源表
+- [x] **R-P0-2 训练口切 axis:train + 守卫（代理 P）**：`sft.py` 默认与 5 份 yaml 训练口全切 `axis: train`（旧值留注释与理由）；新增守卫测试（训练配置 axis ∈ quality/test 轴即 fail；引用 registry 轴定义） —— 验证：`grep -h "axis:" release/production/configs/*.yaml` 无训练路径 quality + 守卫测试 passed + 故意注错变红自证（R14）
+- [x] **R-P0-3 双 fixture 修复（代理 O）**：`release/tests/test_backends.py:26-29` 删重复装饰 —— 验证：`cd release && .venv/bin/python -m pytest tests -q -m "not integration"` 收集期 0 error（MPS-only 败/skip 如实计数）
+- [x] **R-P0-4 LICENSE=MIT（代理 O）**：根目录 MIT 文本（2026，版权人=仓库署名者） —— 验证：`ls LICENSE` 且 `grep -n "MIT" refs/clone.sh` 措辞一致
 
 ## P1 波（P0 收口后）
 
