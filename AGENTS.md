@@ -8,7 +8,7 @@
 <repo-root>/
 ├── AGENTS.md            # 本文
 ├── README.md            # 根级导航（手册与各阶段详情在 scratch/release 内）
-├── .agent/              # ★ 本项目沉淀的 agent 资产（skill 与 sub-agent 用法）
+├── .agent/              # ★ 本项目沉淀的 agent 资产（skill / sub-agent / rules 用法）
 ├── openspec/            # ★ 变更计划唯一真源
 ├── scratch/             # ★ 第一阶段（P1 学习版）冻结主场：主路径结构 + 全部产物
 ├── release/             # ★ 第二阶段（P2 正式版）主场：从冻结基线开工，产物落于此
@@ -56,6 +56,14 @@
 
 **完成度四查**（每波 agent 返回后必做）：勾选真实性（复跑验证命令）/ 产物盘点（白名单文件与 spec↔测试映射）/ 数字溯源（汇报数字逐个实测）/ 遗漏检测（任务 vs 勾选 + 覆盖矩阵复查）→ 未完成者归因三型（agent 未完成/做错/计划缺任务）后按三型重派（复跑验证型/补缺型/修复型）。
 
+### `.agent/rules/`（always-on 通用工作纪律）
+
+| 文件 | 用途 |
+|---|---|
+| `common.md` | "One For All" 通用工程纪律：第〇层元规则（断言即负债 / 结构不得自证 / 边界跟随语义单元）、第一层操作纪律（问题分析/数据流/变更/抽象/回归/文档）、第二层工程实测表 |
+
+frontmatter 标 `alwaysApply: true`，宿主自动注入、长期遵循；其他工具（Claude Code、Codex 等）把它作为会话首读的纪律底盘。内容为语言中立表述，不绑定具体仓库。
+
 ## CI 与 hook
 
 - GitHub Actions（`.github/workflows/ci.yml`）与 `.githooks/pre-commit` 当前指向 `scratch/tools/ci.sh`；**P2 主场切换时**改为 `release/tools/...`（release 启用时同步建立自己的 tools/ 或调整路径）。
@@ -63,4 +71,4 @@
 
 ## 快速上手（新会话）
 
-1. 读本文 → 2. `openspec list` 看活跃变更 → 3. P2 任务读 `openspec/changes/teacher-p2-production-full/`（一级 tasks.md 是编排清单）→ 4. 按 `.agent/skills/.../apply-orchestration.md` 的协议派发执行 → 5. 工作目录 `release/`，验证命令一律 `release/.venv/bin/python`（启用后）。
+1. 读本文 + [.agent/rules/common.md](.agent/rules/common.md)（通用工程纪律） → 2. `openspec list` 看活跃变更 → 3. P2 任务读 `openspec/changes/teacher-p2-production-full/`（一级 tasks.md 是编排清单）→ 4. 按 `.agent/skills/.../apply-orchestration.md` 的协议派发执行 → 5. 工作目录 `release/`，验证命令一律 `release/.venv/bin/python`（启用后）。
