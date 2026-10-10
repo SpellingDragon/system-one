@@ -14,7 +14,9 @@
   - [x] P1-1e addln/readout 数值 case **已接入 run_numerics**（G 代理：六→八 target，内联 DSL 避 b 件 sys.exit，新增 `import tilelang.ascend.language as TA`，两件 `--no-run` compile-PASS exit0；阈值由宿主仿真定 r_h<1e-5/r_y<3e-4 有偏判别）——真机 rel 随 P1-1d 同窗收
 - [x] P1-2 rope/attn_sw 移植（已随 P1-1b 完成：编译×5 + 数值双绿 1e-7 级，P1-1c 记档）
 - [ ] **P1-3 GDN 件移植（本项目旗舰）**：短卷积 ✓ 真机数值绿（6.35e-08，P1-1c）→ delta rule 前后向 **编译+CPU 对拍已收（F 代理 2026-10-10）**：fwd/bwd kernel ub+pure 双档 compile-PASS，六项梯度全实现（未动用 partial 例外条），CPU fp32 golden rel_o=1.29e-07/bwd 5.76e-07/adjoint-vs-FD 7.28e-10；**decay 的 log 缺件判定=口径(a) 仅需 trunk expf、零新增 compat**（`compat_patch_F.h` 仅口径(b)备用，本波不合并 trunk）。真机首执行件 `run_delta_card.py` 就绪（显式 9 张量分配，本地 compile-only PASS）—— 验证：同 P1-1d 单窗 `NUM-delta_fwd` 真机 rel
-- [ ] P2 三栈联调（torch_npu+自研件混合栈，GDN 件替换Conv2D路径）—— 验证：0.8B 训练步跑通
+- [ ] **P1-4 接口 home 910B 编译合流（执行期发现的新关键路径·全本地零卡成本）**：`ascend/kernels/*_asc.py` 的 ascend 路径全部用 `SimtVF/T.Parallel`（950 方言载体），**从未在 target=ascend 编过**（gdn_asc.py:112 自陈"本地不实编"，仅 target=cpu 语义对拍）；实测 `T.SimtVF` 件在 patched 910B tilelang 下 **COMPILE-FAIL**（"Ascend device compilation failed"，run p11d 同窗取证）——与 P0-1/P1（SIMT 面 0 目录、C 类 72% 压 950 方言）吻合。→ **把 attempts/ 已验证的 910B 可编形态（B/C/D/E/F：标量化+表加载+AIC）合流进接口 home**，逐件 `target=ascend` 编译判决（Docker 判决环境，不需设备）：add_ln/readout/gemm/gemm_bwd_dw/rope/attn_sw/gdn-conv/gdn-delta/lora 九件全绿方可支撑 P2 —— 验证：新写 `compile_all_asc.py` 逐件 import 接口 builder + tilelang.compile(target="ascend") 出 .o，per-op PASS 行入 run
+  - 附带口径修正：gdn 反向 `BWD_STATUS=partial`（走 torch）现被 F 代理超越（attempts/F 已出 910B 标量反向六梯 compile+CPU-golden）——合流时将反向接入接口、撤 partial；conv 位点（R7 崩点）接口 home 现标"在上游之外"，需新增 conv 入口
+- [ ] P2 三栈联调（torch_npu+自研件混合栈，GDN 件替换Conv2D路径）—— **硬前置=P1-4 接口 home 九件 target=ascend 全绿**（否则训练步首个 SimtVF 件即编不出）—— 验证：0.8B 训练步跑通
 - [ ] R6/R7 成本记账与 gate 报价（恢复 C5 的前置）—— 验证：报价行+熔断判定
 
 ## 挂起（甲路裁定）

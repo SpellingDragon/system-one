@@ -24,3 +24,7 @@
 - **D-num1**：向量面（标量化+表加载+软件数学件）真机数值全绿（1e-7~1e-8 级）→ P1-1 向量侧改道方案**数值层闭合**。
 - **D-num2**：cube 面 gemm_l1/dW 同型 aicore 507015（非法访问型崩溃）→ V1/V2（load_cbuf_to_ca 装填位段）从"数值待证"升格为"致命缺陷"；修复路径=官方 mm 链构造点逐参对照（P1-1d），本地修完单窗复验——禁止卡上试错（R20）。
 - **D-num3**：gemm direct（UB 直读 mad）rel=nan 维持 backlog（l1 路修好后无生产必要性）。
+
+## 接口 home 合流缺口（2026-10-10，P2 预置侦察所生）
+- **D-int1**：P2 三栈联调的真实前置不是 kernel 数值，而是**接口 home `ascend/kernels/*_asc.py` 的 910B 编译合流**。证据：九件 `*_asc.py`（除 lora）的 ascend 路径普遍用 `SimtVF/T.Parallel`（950 载体），`gdn_asc.py:112` 自陈"target=ascend 本地不实编"——仅验过 target=cpu 语义；实测 `T.SimtVF` 件在 patched 910B tilelang 下 **COMPILE-FAIL**（"Ascend device compilation failed"）。与 P0-1（C 类 72% 压 950 SIMT 方言）/P1-1（SIMT 面 0 目录）既有实测吻合。**裁决**：把 attempts/ 已验证的 910B 可编形态（B/C/D/E/F：标量化+表加载+§11 数学件+AIC）逐个重写进接口 home 的 `*_ascend_impl`（接口 `forward/backward/plan/run` 保持稳定，因 attempts 是一次性移植件、`_asc.py` 才是产品），逐件 `target=ascend` 出 .o 判决（Docker 判决环境零卡成本，R20 兑现）。**被否方案**：直接上卡跑训练步——首个 SimtVF 件即编不出，卡窗纯烧钱；接口 home 路由到 attempts 脚本——attempts 是散件非产品层，层次倒挂。
+- **D-int2**：合流时两处口径升级——(a) gdn 反向 `BWD_STATUS=partial` 被 F 代理超越（attempts/F 已出 910B 标量六梯反向 + CPU-golden 5.76e-07），撤 partial 接入接口；(b) conv 位点（R7 崩点）接口 home 现标"在上游之外"、无入口，需新增 conv 入口（c_gdn_conv 的 910B 形态）。
