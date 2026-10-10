@@ -35,9 +35,8 @@ DT = {"float16": "fp16", "float32": "fp32", "bfloat16": "bf16"}
 
 def _t(shape, dtype, scale=1.0):
     import torch
-    TORCH_DT = {"fp16": "float16", "fp32": "float32", "bf16": "bfloat16"}
-    t = getattr(torch, TORCH_DT[DT[dtype]])(torch.randn(*shape, device="npu", dtype=torch.float32) * scale)
-    return t
+    TORCH_DT = {"fp16": torch.float16, "fp32": torch.float32, "bf16": torch.bfloat16}
+    return (torch.randn(*shape, device="npu", dtype=torch.float32) * scale).to(TORCH_DT[DT[dtype]])
 
 
 def _np(x):
@@ -178,12 +177,13 @@ def num_rope():
     rng = np.random.default_rng(7)
     qkv = rng.standard_normal((tk, 3, hd, dm)).astype(np.float32)
     ang = rng.uniform(0, 3.14, (tk, dm // 2)).astype(np.float32)
-    cos, sin, freq = np.cos(ang), np.sin(ang), (ang * 0 + 1).astype(np.float32)
+    cos, sin = np.cos(ang), np.sin(ang)
+    freq = (1.0 / (10000 ** (2 * np.arange(dm // 2) / dm))).astype(np.float32)
     import torch
     ts = [torch.from_numpy(x).npu() for x in (qkv, cos, sin, freq)]
     out = k(*ts)
     ref = eg.rope_ref_f64(qkv, cos, sin, sign=1)
-    r = relerr(np.asarray(out).astype(np.float32), ref.astype(np.float32))
+    r = relerr(_np(out).astype(np.float32), ref.astype(np.float32))
     assert r < 5e-6, f"rel={r}"
     return f"NUM-rope-PASS rel={r:.2e}"
 
@@ -211,7 +211,7 @@ def num_attnsw():
             sc -= sc.max()
             e = np.exp(sc); e /= e.sum()
             ref[hh, t] = e @ V[hh, lo:t + 1]
-    r = relerr(np.asarray(out).astype(np.float32), ref)
+    r = relerr(_np(out).astype(np.float32), ref)
     assert r < 1e-4, f"rel={r}"
     return f"NUM-attnsw-PASS rel={r:.2e}"
 
